@@ -1,0 +1,56 @@
+{
+  "blocks": [
+    {
+      "shared": "---\n"
+    },
+    {
+      "claude": "",
+      "codex": "name: cleanup-session\n"
+    },
+    {
+      "shared": "description: After a feature/fix/release is done, remove this repo's dev leftovers — merged branches, their worktrees, and docker containers/networks/images.\n"
+    },
+    {
+      "claude": "model: sonnet\n",
+      "codex": ""
+    },
+    {
+      "shared": "---\n"
+    },
+    {
+      "claude": "",
+      "codex": "\nResolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.\n"
+    },
+    {
+      "shared": "\nClean up the current repo after a finished session. Everything runs through `scripts/cleanup-session.sh` (branch/worktree logic is `clean-repos.sh` scoped to this repo, then docker). Always confirm before deleting.\n\n"
+    },
+    {
+      "claude": "Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote-only`, `--exclude <branch>`, `--no-docker`. Empty = defaults.\n",
+      "codex": "Optional flags: **user-provided arguments** — pass through as-is: `--local-only`, `--remote-only`, `--exclude <branch>`, `--no-docker`. Empty = defaults.\n"
+    },
+    {
+      "shared": "\n"
+    },
+    {
+      "claude": "**Every script call:** `timeout: 300000`, redirect to a file, then `Read` it (captured output has come back empty otherwise).\n",
+      "codex": "**Every script call:** allow enough time, redirect to a file, then read it (captured output has come back empty otherwise).\n"
+    },
+    {
+      "shared": "\n## Step 1 — Scan (read-only)\n\n```bash\n"
+    },
+    {
+      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh\" scan $ARGUMENTS > /tmp/cleanup-session-scan.txt 2>&1; echo \"exit:$?\"\n",
+      "codex": "\"$SKILL_REPO_ROOT/scripts/cleanup-session.sh\" scan [flags] > /tmp/cleanup-session-scan.txt 2>&1; echo \"exit:$?\"\n"
+    },
+    {
+      "shared": "```\n\nCandidate types (`local-squash-merged`, `dirty-worktrees`) behave as in `clean-repos`: squash-merged are never auto-deleted; dirty worktrees are never touched.\n\n## Step 2 — Confirm\n\nShow the candidates and wait for explicit confirmation. Remote deletion and `docker … down -v` (volumes) are irreversible. Listed `running-processes` are killed before their worktree is removed. `skipped=shared` compose projects (not named after their worktree) are never downed. If docker is unresponsive the script runs `docker-unstick` (when installed: restarts Docker Desktop and prunes unused images/containers/build cache) — relay its output.\n\n## Step 3 — Apply\n\n```bash\n"
+    },
+    {
+      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh\" apply $ARGUMENTS > /tmp/cleanup-session-apply.txt 2>&1; echo \"exit:$?\"\n",
+      "codex": "\"$SKILL_REPO_ROOT/scripts/cleanup-session.sh\" apply [flags] > /tmp/cleanup-session-apply.txt 2>&1; echo \"exit:$?\"\n"
+    },
+    {
+      "shared": "```\n\nRelay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`) as-is; don't override.\n\n## Output format\n\n1. **Branches** — local/remote deleted\n2. **Worktrees** — removed\n3. **Docker** — compose projects downed, containers/images/networks pruned (or \"skipped\")\n4. **Skipped** — with reason\n"
+    }
+  ]
+}
