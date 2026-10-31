@@ -35,7 +35,9 @@ def check(root):
                 if relative.is_absolute() or '..' in relative.parts or not rule.resolve().is_relative_to(root) or not rule.is_file():
                     raise ValueError(f'invalid rule source: {name}')
                 routing = agents.read_text() if agents.is_file() else ''
-                if not any(entry['source'] in line and all(path in line for path in entry['paths'])
+                if not any(entry['source'] in line and all(
+                        re.search(r'(?<![\w./*?\[\]-])' + re.escape(path) + r'(?![\w./*?\[\]-])', line)
+                        for path in entry['paths'])
                            for line in routing.splitlines()):
                     errors.append(f'{name}: AGENTS.md must reference source and scope paths')
                 adapter = root / '.claude' / 'rules' / f'{name}.md'
@@ -47,6 +49,8 @@ def check(root):
                     errors.append(f'{adapter.name}: Claude scoped rule has no source')
         except (OSError, ValueError, TypeError) as exc:
             errors.append(f'invalid scopes: {exc}')
+    elif any((root / '.claude' / 'rules').glob('*.md')):
+        errors.append('Claude scoped rules exist without .agents/scopes.json')
 
     source = root / '.agents' / 'skills'
     target = root / '.claude' / 'skills'

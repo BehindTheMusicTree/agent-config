@@ -42,6 +42,15 @@ class ProjectAdapterTests(unittest.TestCase):
             adapter.write_text('---\npaths:\n  - "**/*.py"\n---\n\nPython rule\n')
             command = [sys.executable, str(SCRIPT), str(root)]
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            scopes = root / '.agents/scopes.json'
+            scopes.unlink()
+            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            scopes.write_text(json.dumps({'python': {'source': '.agents/rules/python.md', 'paths': ['**/*.py', '**/*.pyi']}}))
+            (root / 'AGENTS.md').write_text('Read .agents/rules/python.md for **/*.pyi\n')
+            adapter.write_text('---\npaths:\n  - "**/*.py"\n  - "**/*.pyi"\n---\n\nPython rule\n')
+            self.assertIn('must reference source and scope paths', subprocess.run(command, capture_output=True, text=True).stderr)
+            scopes.write_text(json.dumps({'python': {'source': '.agents/rules/python.md', 'paths': ['**/*.py']}}))
+            adapter.write_text('---\npaths:\n  - "**/*.py"\n---\n\nPython rule\n')
             (root / 'AGENTS.md').write_text('Read .agents/rules/python.md for **/*.ts\nOther rule: **/*.py\n')
             self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
             (root / 'AGENTS.md').write_text('Read .agents/rules/python.md for **/*.py\n')
