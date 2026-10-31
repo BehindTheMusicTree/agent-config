@@ -1,0 +1,32 @@
+{
+  "blocks": [
+    {
+      "shared": "---\n"
+    },
+    {
+      "claude": "description: Create or update shared Claude commands, Codex skills, and global agent instructions in agent-config.\nmodel: sonnet\n",
+      "codex": "name: update-skill\ndescription: Create or update a shared Claude command and its Codex skill in the source configuration repository.\n"
+    },
+    {
+      "shared": "---\n\n"
+    },
+    {
+      "claude": "Work in the source checkout specified by the user or the configured owner of the requested skill. Inspect the working tree first and preserve existing changes. The requested change is: **$ARGUMENTS**. Ask only if the intended change is ambiguous.\n",
+      "codex": "Work in the source checkout specified by the user or the configured owner of the requested skill. Verify that it is a Git checkout before editing. Never edit an installed release snapshot or a plugin cache. Inspect the working tree and preserve existing changes.\n"
+    },
+    {
+      "shared": "For a shared workflow, edit its `workflows/<name>.json` source when that directory exists; run `python3 scripts/render-workflows.py --apply` to regenerate both clients, then verify the changes. For a source repository without workflow generation, maintain its Claude command and Codex skill according to its documented conventions. Keep client-specific invocation details in their respective variants. Never edit installed release snapshots or generated files directly.\n"
+    },
+    {
+      "claude": "For global guidance, update `instructions/global.md`, `instructions/rules/`, `instructions/scopes.json`, and relevant `adapters/`. Never edit installed release snapshots or generated global files. Keep `CONVENTIONS.md` and the README consistent with their source files.\n",
+      "codex": "Use the user's request to determine the workflow and intended behavior. Preserve their respective runtime conventions; scripts live under the repository's `scripts/`. For new skills use a lowercase hyphenated name and a YAML frontmatter with `name` and `description`. Update shared conventions and README when relevant.\n"
+    },
+    {
+      "shared": "\n"
+    },
+    {
+      "claude": "Run the source repository's documented validation commands. If Claude commands changed, bump `.claude-plugin/plugin.json` according to the change. Commit, publish, or update installed agents when requested or otherwise authorized. After publishing, synchronize the profile that owns the changed source and report publication and local synchronization separately.\n",
+      "codex": "Run the source repository's documented validation commands and exercise modified scripts as appropriate. Review both versions for behavioral consistency and report any intentional differences. Bump the Claude plugin version if its commands change. Commit, push, publish, or refresh installed plugins only when requested or otherwise authorized by the user and the applicable environment.\n\nFor global instructions, edit `instructions/global.md`, `instructions/rules/`, and `instructions/scopes.json`; use `adapters/` only for agent-specific loading instructions. `CONVENTIONS.md` is an index into these sources. Never edit generated global files directly. Preview with `python3 scripts/install-instructions.py`; apply authorized changes with `--apply`, and preserve any local edits reported by the installer.\n"
+    }
+  ]
+}

@@ -4,8 +4,8 @@ description: Create or update a shared Claude command and its Codex skill in the
 ---
 
 Work in the source checkout specified by the user or the configured owner of the requested skill. Verify that it is a Git checkout before editing. Never edit an installed release snapshot or a plugin cache. Inspect the working tree and preserve existing changes.
-
-Use the user's request to determine the workflow and intended behavior. Update the Claude command in `commands/<name>.md` and its Codex counterpart in `skills/<name>/SKILL.md` together when both apply. Preserve their respective runtime conventions; scripts live under the repository's `scripts/`. For new skills use a lowercase hyphenated name and a YAML frontmatter with `name` and `description`. Update shared conventions and README when relevant.
+For a shared workflow, edit its `workflows/<name>.json` source when that directory exists; run `python3 scripts/render-workflows.py --apply` to regenerate both clients, then verify the changes. For a source repository without workflow generation, maintain its Claude command and Codex skill according to its documented conventions. Keep client-specific invocation details in their respective variants. Never edit installed release snapshots or generated files directly.
+Use the user's request to determine the workflow and intended behavior. Preserve their respective runtime conventions; scripts live under the repository's `scripts/`. For new skills use a lowercase hyphenated name and a YAML frontmatter with `name` and `description`. Update shared conventions and README when relevant.
 
 Run the source repository's documented validation commands and exercise modified scripts as appropriate. Review both versions for behavioral consistency and report any intentional differences. Bump the Claude plugin version if its commands change. Commit, push, publish, or refresh installed plugins only when requested or otherwise authorized by the user and the applicable environment.
 
