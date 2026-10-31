@@ -1,0 +1,14 @@
+{
+  "typescript": {
+    "source": "instructions/rules/typescript.md",
+    "paths": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.mts", "**/*.cts", "**/*.mjs", "**/*.cjs"]
+  },
+  "python": {
+    "source": "instructions/rules/python.md",
+    "paths": ["**/*.py", "**/*.pyi"]
+  },
+  "prisma": {
+    "source": "instructions/rules/prisma.md",
+    "when": "Working with a Prisma schema, query, or migration in a project using Prisma"
+  }
+}

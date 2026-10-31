@@ -1,0 +1,5 @@
+{
+  "name": "agent-config-marketplace",
+  "owner": {"name": "BehindTheMusicTree"},
+  "plugins": [{"name": "agent-config", "source": "."}]
+}

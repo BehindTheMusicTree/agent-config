@@ -1,0 +1,7 @@
+{
+  "name": "agent-config",
+  "version": "1.0.0",
+  "license": "MIT",
+  "description": "Shared agent workflows and installation tools for Claude Code and Codex",
+  "author": {"name": "BehindTheMusicTree"}
+}
