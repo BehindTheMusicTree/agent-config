@@ -33,3 +33,7 @@ Les fichiers `workflows/<name>.json` contiennent les blocs partagés et les vari
 Pour un projet adoptant la convention `AGENTS.md` / import `CLAUDE.md` et les liens de skills relatifs, `python3 scripts/check-project-agents.py /path/to/project` vérifie cette structure sans écriture. Ce contrôle est volontairement limité aux projets qui choisissent cette convention ; il ne vérifie pas le contenu métier ni le chargement effectif des agents.
 
 Pour les règles à portée, `.agents/scopes.json` associe chaque nom à un objet `source` (chemin relatif) et `paths` (liste de globs). `AGENTS.md` référence chaque source et ses globs ; `.claude/rules/<name>.md` contient le frontmatter `paths:` suivi du texte exact de la source. Générer les adaptateurs avec `python3 scripts/render-project-rules.py /path/to/project --apply` ; sans `--apply`, la commande vérifie le résultat. Le manifeste `.agents/generated-rules.json` protège les sorties modifiées localement. Le routage dans `AGENTS.md` reste à maintenir dans le projet.
+
+## Standalone review
+
+Use `$review` in Codex or `/agent-config:review` in Claude to review a branch, commit range, or existing PR without changing it. `create-pr` invokes the same workflow on its final state. Independence requires a fresh reviewer session when available.

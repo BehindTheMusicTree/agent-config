@@ -81,7 +81,7 @@ Refresh the context after tests/docs, edits, or a base merge so the PR text desc
 
 ## Step 9a — Review the final state
 
-Apply the selected depth's review contract from the shared policy to the final code and integration state. Reuse an existing review only when its range and relevant inputs still apply; disclose any unavailable independent-review capability. Revisit changed hunks/interactions after post-review edits. Incorporate intent-specific evidence and limitations into the PR body. Do not duplicate a review just because this skill was called by another workflow.
+Invoke `agent-config:review` for the final code and integration state, passing the selected intent/depth, pinned range and applicable evidence. Reuse an existing review only when its range and relevant inputs still apply; disclose any unavailable independent-review capability. Revisit changed hunks/interactions after post-review edits. Incorporate intent-specific evidence and limitations into the PR body. Do not duplicate a review just because this skill was called by another workflow.
 
 ## Step 10 — Push and open
 
