@@ -21,10 +21,10 @@ class WorktreePathsTests(unittest.TestCase):
                 'commit', '-q', '--allow-empty', '-m', 'initial', cwd=root)
             script = str(SCRIPTS / 'new-worktree-setup.sh')
             output = run(script, 'codex', 'feature/one', 'main', cwd=root)
-            self.assertIn('worktree_path=.codex/worktrees/feature-one', output)
+            self.assertIn(f'worktree_path={root.resolve()}/.codex/worktrees/feature-one', output)
             linked = root / '.codex/worktrees/feature-one'
             output = run(script, 'claude', 'feature/two', 'main', cwd=linked)
-            self.assertIn('worktree_path=.claude/worktrees/feature-two', output)
+            self.assertIn(f'worktree_path={root.resolve()}/.claude/worktrees/feature-two', output)
             self.assertEqual(run('git', 'status', '--porcelain', cwd=root), '')
             output = run(script, 'codex', 'feature/one', 'main', cwd=root)
             self.assertIn('status=blocked reason=worktree-path-exists', output)

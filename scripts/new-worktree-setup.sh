@@ -71,7 +71,7 @@ if ! git worktree add -b "$branch" "$wt_rel" "$base_for_add" >/dev/null 2>&1; th
   fi
   base_for_add="$trunk"
 fi
-echo "worktree_path=$wt_rel"
+echo "worktree_path=$wt_abs"
 echo "branch=$branch"
 echo "base_ref=$base_for_add"
 
