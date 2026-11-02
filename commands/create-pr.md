@@ -64,9 +64,9 @@ Conventional Commits, ≤72 chars: `<type>(<scope>): <description>`, type ∈ `f
 
 Write **only the body** (no title, no wrapper headings — it's passed verbatim as `--body-file`) to the per-worktree git directory, never into the working tree:
 ```bash
-git rev-parse --git-path pr-description.md
+git rev-parse --path-format=absolute --git-path pr-description.md
 ```
-Use that resolved path as `<path>` in the steps below. It never appears in `git status`, needs no `.gitignore` entry, and is removed with the worktree. Never commit it, and never write the body to `.local/`, `.pr-descriptions/` or `.github/pr-descriptions/`.
+Overwrite any existing file at that absolute path and use it as `<path>` in the steps below. It never appears in `git status` and needs no `.gitignore` entry; in a linked worktree it is deleted with the worktree. Never commit it, and never write the body to `.local/`, `.pr-descriptions/` or `.github/pr-descriptions/`.
 
 ## Step 9 — Sync with base
 
