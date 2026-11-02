@@ -9,17 +9,17 @@ Create a new git worktree with its own branch, then populate it with the same gi
 
 The branch name is: **user-provided arguments**
 
-If no branch name was given, ask for one before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk.
+If no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk.
 
 ## Step 1 — Run the setup script
 
 ```bash
-"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" <branch-name> [<base-ref>]
+"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" codex <branch-name> [<base-ref>]
 ```
 
 Allow enough time for the command to finish — the dependency install can exceed the 120s default, and output printed before an auto-move to the background is lost.
 
-This does everything in one pass: detects the flow/trunk (Gitflow `develop` vs. GitHub `main`/`master`) unless a base ref was given, creates the worktree and branch at `.claude/worktrees/<slug>` (same location Claude Code's own `EnterWorktree` tool uses), discovers and copies every gitignored `.env`-style file, offsets any `PORT`-style variable by a deterministic per-branch amount (skipping `_REMOTE_PORT` variables, which point at a fixed port on another machine), rewrites any cross-file `localhost:<port>` reference so it stays in sync with the offset (e.g. one app's `BACKEND_URL` pointing at another app's port), and installs dependencies with the detected package manager (or a `.venv` for a bare `pyproject.toml`).
+This does everything in one pass: detects the flow/trunk (Gitflow `develop` vs. GitHub `main`/`master`) unless a base ref was given, creates the worktree and branch at the client-specific `.<client>/worktrees/<slug>` directory, discovers and copies every gitignored `.env`-style file, offsets any `PORT`-style variable by a deterministic per-branch amount (skipping `_REMOTE_PORT` variables, which point at a fixed port on another machine), rewrites any cross-file `localhost:<port>` reference so it stays in sync with the offset (e.g. one app's `BACKEND_URL` pointing at another app's port), and installs dependencies with the detected package manager (or a `.venv` for a bare `pyproject.toml`).
 
 It prints `key=value` lines, ending in `status=ok` or `status=blocked reason=<reason>`. Trust its output — it re-derives everything fresh each run, so there's no need to re-run individual git/perl commands by hand to double-check it.
 

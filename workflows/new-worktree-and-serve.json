@@ -29,11 +29,11 @@
       "codex": "The branch name is: **user-provided arguments**\n"
     },
     {
-      "shared": "\nIf no branch name was given, ask for one before proceeding. Optionally the user may also specify a base ref (e.g. \"off develop\") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk.\n\n## Step 1 — Run the setup script\n\n```bash\n"
+      "shared": "\nIf no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. \"off develop\") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk.\n\n## Step 1 — Run the setup script\n\n```bash\n"
     },
     {
-      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree-setup.sh\" <branch-name> [<base-ref>]\n",
-      "codex": "\"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh\" <branch-name> [<base-ref>]\n"
+      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree-setup.sh\" claude <branch-name> [<base-ref>]\n",
+      "codex": "\"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh\" codex <branch-name> [<base-ref>]\n"
     },
     {
       "shared": "```\n\n"

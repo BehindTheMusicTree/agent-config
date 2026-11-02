@@ -41,20 +41,26 @@ if ! deadline 15 docker info >/dev/null 2>&1; then
   deadline 15 docker info >/dev/null 2>&1 || { echo "skipped: docker unresponsive"; exit 0; }
 fi
 
-wt_root="$repo/.claude/worktrees/"
+claude_root="$repo/.claude/worktrees/"
+codex_root="$repo/.codex/worktrees/"
 projects=()
 ps_out="$(mktemp)"; trap 'rm -f "$ps_out"' EXIT
 deadline 30 docker ps -a --format '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}' > "$ps_out" \
   || { echo "skipped: docker unresponsive"; exit 0; }
 while IFS=$'\t' read -r proj dir; do
-  [[ -n "$proj" && "$dir" == "$wt_root"* ]] || continue
+  [[ -n "$proj" ]] || continue
+  case "$dir" in
+    "$claude_root"*) wt_root="$claude_root" ;;
+    "$codex_root"*) wt_root="$codex_root" ;;
+    *) continue ;;
+  esac
   # Machine-wide stacks (e.g. a shared S3) can be started from a worktree; only down those named after it.
   slug="${dir#"$wt_root"}"; slug="${slug%%/*}"
   if [[ "$proj" != *"$slug"* ]]; then
     echo "compose-project=$proj skipped=shared (name not tied to worktree $slug)"
     continue
   fi
-  [[ "$mode" == apply && -d "$dir" ]] && continue
+  [[ "$mode" == apply && -d "$wt_root$slug" ]] && continue
   projects+=("$proj")
   echo "compose-project=$proj dir=$([[ -d "$dir" ]] && echo exists || echo gone)"
 done < <(sort -u "$ps_out")
