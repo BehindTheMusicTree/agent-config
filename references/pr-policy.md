@@ -30,7 +30,7 @@ Review behavior, callers, error paths, tests and documentation. Apply depth from
 
 ### release
 
-Default at least standard. Verify source/target and branching model, canonical version, last published release and the full delivery range, included changes and release notes, migrations, compatibility and recovery. A small version-only PR can ship a large set of earlier changes: distinguish the PR diff from the release content. Reuse prior reviews only with exact ranges and relevant evidence; independently review uncovered release/integration risks rather than blindly re-reviewing all unchanged code. A deep included risk requires deep release handling. Never bump a version twice or tag an unmerged feature commit. Publication, merge permission and CI rules remain separate from review depth.
+Default at least standard. Verify source/target and branching model, canonical version, last published release and the full delivery range, included changes and release notes, migrations, compatibility and recovery. A small version-only PR can ship a large set of earlier changes: distinguish the PR diff from the release content. Reuse prior reviews only with exact ranges and relevant evidence; independently review uncovered release/integration risks rather than blindly re-reviewing all unchanged code. A deep included risk requires deep release handling. Never bump a version twice or tag an unmerged feature commit. Publication, merge permission and CI rules remain separate from review depth, and release PRs are never auto-merged.
 
 ### version-bump
 
@@ -43,6 +43,16 @@ Default standard. Inspect direct and transitive changes, manifest/lock consisten
 ### back-merge
 
 Verify the released source and intended integration target from project conventions, both pinned SHAs, and whether the source is already an ancestor of the target. Already integrated means report no PR needed. Otherwise use a dedicated integration branch from the released source and merge the target there; never resolve by merging develop into main or another protected release source. Preserve both sides, never use an ours/theirs strategy to discard changes, and inspect integration behavior even without textual conflicts. Do not introduce a new version/changelog entry just to describe a back-merge. Skip feature-branch prefix renaming for the integration branch. Default standard; light only with complete evidence of an already-reviewed equivalent result and no unresolved semantic interaction. Escalate sensitive conflicts to deep. Record source/target SHAs, conflict resolutions and integration validations in the body.
+
+## Auto-merge
+
+After `create-pr` opens or updates a PR, enable auto-merge on it unless the user opted out (`--no-auto-merge`, or any instruction not to merge).
+
+- Applies only to ready, non-draft PRs with intent `change` or `dependency-bump`. Never for `release`, `version-bump` or `back-merge`: releases wait until the user asks.
+- Run `gh pr merge <pr> --auto` with the repository's merge method: the one its contributing docs state, else `--merge` under Gitflow and `--squash` under GitHub flow. Do not pass `--delete-branch` (it breaks when the head is a trunk branch and removes a branch a worktree may still use) and never `--admin`.
+- Auto-merge only completes once required checks pass. It is not a CI bypass, and a failing check still needs fixing.
+- If the repository disallows auto-merge or the call fails, report that and leave the PR open. Do not fall back to an immediate merge.
+- Read the PR back and report `autoMergeRequest` (method) or the reason it was skipped.
 
 ## Handoff and reuse
 
