@@ -44,17 +44,21 @@ class WorktreePathsTests(unittest.TestCase):
             stub.write_text('#!/bin/sh\nexit 0\n')
             stub.chmod(0o755)
             docker = script_dir / 'docker'
-            docker.write_text('#!/bin/sh\nif [ "$1" = ps ] && [ "$2" = -a ]; then\n'
+            docker.write_text('#!/bin/sh\nprintf "%s\n" "$*" >> "$DOCKER_LOG"\nif [ "$1" = ps ] && [ "$2" = -a ]; then\n'
                               '  printf "feature-one\\t%s/.codex/worktrees/feature-one\\n" "$TEST_REPO"\n'
                               '  printf "feature-two\\t%s/.claude/worktrees/feature-two\\n" "$TEST_REPO"\n'
                               '  printf "shared\\t%s/.codex/worktrees/feature-one\\n" "$TEST_REPO"\n'
                               'fi\n')
             docker.chmod(0o755)
-            env = dict(os.environ, PATH=f'{script_dir}:{os.environ["PATH"]}', TEST_REPO=str(root.resolve()))
+            env = dict(os.environ, PATH=f'{script_dir}:{os.environ["PATH"]}', TEST_REPO=str(root.resolve()), DOCKER_LOG=str(Path(directory) / 'docker.log'))
             output = run(str(script), 'scan', cwd=root, env=env)
             self.assertIn('compose-project=feature-one dir=gone', output)
             self.assertIn('compose-project=feature-two dir=gone', output)
             self.assertIn('compose-project=shared skipped=shared', output)
+            (root / '.codex/worktrees/feature-one').mkdir(parents=True)
+            docker.write_text(docker.read_text().replace('feature-one\\n', 'feature-one/missing\\n'))
+            run(str(script), 'apply', cwd=root, env=env)
+            self.assertNotIn('compose -p feature-one down', (Path(directory) / 'docker.log').read_text())
 
 
 if __name__ == '__main__':

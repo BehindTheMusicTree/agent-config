@@ -60,7 +60,7 @@ while IFS=$'\t' read -r proj dir; do
     echo "compose-project=$proj skipped=shared (name not tied to worktree $slug)"
     continue
   fi
-  [[ "$mode" == apply && -d "$dir" ]] && continue
+  [[ "$mode" == apply && -d "$wt_root$slug" ]] && continue
   projects+=("$proj")
   echo "compose-project=$proj dir=$([[ -d "$dir" ]] && echo exists || echo gone)"
 done < <(sort -u "$ps_out")
