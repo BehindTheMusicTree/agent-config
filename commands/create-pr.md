@@ -3,7 +3,7 @@ description: Produce a PR description for the current branch, push it, and open 
 model: sonnet
 ---
 
-Write a PR description for the current branch, push, and open the PR. Optional `--draft`: **$ARGUMENTS** — if present, add `--draft` in Step 10.
+Write a PR description for the current branch, push, and open the PR. Optional `--draft`: **$ARGUMENTS** — if present, add `--draft` in Step 10. `--no-auto-merge` skips Step 11.
 
 ## PR intent and review depth
 
@@ -97,6 +97,10 @@ gh pr create --base <base-branch> --title "<title>" --body-file <path> [--draft]
 
 Read the PR back and verify its head SHA matches the reviewed/pushed commit before reporting success. Do not create a duplicate or report a review of a different head.
 
+## Step 11 — Auto-merge
+
+Apply the policy's **Auto-merge** section: unless the user opted out, enable auto-merge on the ready, non-draft PR for intent `change` or `dependency-bump`, then read back `autoMergeRequest`. Never for `release`, `version-bump` or `back-merge`, and never with `--admin`.
+
 ## Output format
 
 Don't print the body.
@@ -106,4 +110,5 @@ Don't print the body.
 4. CLAUDE.md change, if any
 5. Tests/docs added, if any
 6. **PR URL**
-7. Intent/depth, review findings, validation evidence reused/run, and remaining limitations
+7. Auto-merge: enabled (method) or skipped (reason)
+8. Intent/depth, review findings, validation evidence reused/run, and remaining limitations

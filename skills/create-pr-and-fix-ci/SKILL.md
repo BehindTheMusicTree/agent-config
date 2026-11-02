@@ -7,7 +7,7 @@ Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any sym
 
 Open a PR for the current branch, then keep fixing failing CI checks and mergeability conflicts until every check passes and the PR can merge.
 
-Arguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--base` from the shared PR policy.
+Arguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--base` from the shared PR policy. `create-pr` enables auto-merge per the policy's **Auto-merge** section; pass `--no-auto-merge` through to skip it. Pushes made while fixing CI keep it enabled.
 
 ## Steps 1–2 — Select context and create or inspect the PR
 
@@ -61,4 +61,5 @@ Keep this terse:
 3. **CI summary** — per iteration, which checks failed and what fix was pushed, or "all green from the start"
 4. **Mergeable state** — per iteration, `mergeable`/`mergeStateStatus` seen, and any conflicts resolved, or "mergeable from the start"
 5. **Additional issues found** — things CI didn't catch, bullet list, or "none"
-6. **Final state** — clean exit, or which cap was hit and what's still outstanding
+6. **Auto-merge** — enabled, skipped (reason), or already merged
+7. **Final state** — clean exit, or which cap was hit and what's still outstanding
