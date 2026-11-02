@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Helper for the new-worktree command.
 #
-#   new-worktree-setup.sh <branch-name> [<base-ref>]
+#   new-worktree-setup.sh <codex|claude> <branch-name> [<base-ref>]
 #
 # Runs the deterministic steps of worktree creation in order: detect
 # flow/trunk (unless <base-ref> is given), create the worktree+branch, copy
@@ -10,13 +10,15 @@
 # install dependencies. Prints key=value lines; final line is always
 # `status=ok` or `status=blocked reason=<reason>`.
 #
-# Run from inside the main worktree (the repo root, or any subdirectory of it).
+# Run from any worktree of the repository.
 set -uo pipefail
 
-branch="${1:?usage: new-worktree-setup.sh <branch-name> [<base-ref>]}"
-base_ref="${2:-}"
+client="${1:?usage: new-worktree-setup.sh <codex|claude> <branch-name> [<base-ref>]}"
+case "$client" in codex|claude) ;; *) echo "status=blocked reason=invalid-client"; exit 0 ;; esac
+branch="${2:?branch name required}"
+base_ref="${3:-}"
 
-repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+repo_root="$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
 if [[ -z "$repo_root" ]]; then
   echo "status=blocked reason=not-a-git-repo"
   exit 0
@@ -45,12 +47,13 @@ echo "trunk=$trunk"
 
 # --- worktree + branch ---
 slug="$(echo "$branch" | tr '/' '-')"
-wt_rel=".claude/worktrees/$slug"
+wt_rel=".$client/worktrees/$slug"
 wt_abs="$repo_root/$wt_rel"
 
-if ! git check-ignore -q .claude/worktrees; then
-  echo ".claude/worktrees/" >> .gitignore
-  echo "gitignore_updated=true"
+if ! git check-ignore -q "$wt_rel/"; then
+  exclude="$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+  printf '\n/%s/worktrees/\n' ".$client" >> "$exclude" || { echo "status=blocked reason=exclude-write-failed"; exit 0; }
+  git check-ignore -q "$wt_rel/" || { echo "status=blocked reason=worktree-not-ignored"; exit 0; }
 fi
 
 if [[ -e "$wt_abs" ]]; then
