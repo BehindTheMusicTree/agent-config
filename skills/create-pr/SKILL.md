@@ -64,11 +64,11 @@ Conventional Commits, ≤72 chars: `<type>(<scope>): <description>`, type ∈ `f
 
 ## Step 8 — Save the body
 
-Write **only the body** (no title, no wrapper headings — it's passed verbatim as `--body-file`) to:
-- `.github/pr-descriptions/<branch-name>.md` if that directory exists,
-- else `.local/pr-desc.md`.
-
-`git check-ignore -q <path>` must succeed; if not, add the directory to `.gitignore` first.
+Write **only the body** (no title, no wrapper headings — it's passed verbatim as `--body-file`) to the per-worktree git directory, never into the working tree:
+```bash
+git rev-parse --path-format=absolute --git-path pr-description.md
+```
+Overwrite any existing file at that absolute path and use it as `<path>` in the steps below. It never appears in `git status` and needs no `.gitignore` entry; in a linked worktree it is deleted with the worktree. Never commit it, and never write the body to `.local/`, `.pr-descriptions/` or `.github/pr-descriptions/`.
 
 ## Step 9 — Sync with base
 
