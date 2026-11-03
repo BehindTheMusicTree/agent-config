@@ -11,10 +11,6 @@
       "shared": "description: Create a git worktree and branch for a new task, then copy gitignored env files into it so the worktree is immediately runnable.\n"
     },
     {
-      "claude": "model: haiku\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n"
     },
     {
