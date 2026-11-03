@@ -1,0 +1,35 @@
+{
+  "blocks": [
+    {
+      "shared": "---\n"
+    },
+    {
+      "claude": "",
+      "codex": "name: handoff\n"
+    },
+    {
+      "shared": "description: Write a self-contained recap of the current session, save it outside the working tree, and print it so a fresh session can resume after /clear or in a new session.\n"
+    },
+    {
+      "claude": "model: sonnet\n",
+      "codex": ""
+    },
+    {
+      "shared": "---\n"
+    },
+    {
+      "shared": "\nProduce a handoff recap so the user can drop this session's context and continue in a fresh one. Strictly read-only apart from the single recap file below: no commits and no other edits.\n\n"
+    },
+    {
+      "claude": "Optional focus: **$ARGUMENTS** — narrows the recap to that topic. Empty = whole session.\n",
+      "codex": "Optional focus: **user-provided arguments** — narrows the recap to that topic. Empty = whole session.\n"
+    },
+    {
+      "shared": "\n## Step 1 — Verify state\n\nDo not recall state from memory. Check each claim with read-only commands before it enters the recap, for example `git worktree list`, `git status --short`, `git branch --show-current`, `gh pr view <n> --json state,mergeStateStatus`. Drop or correct anything that no longer holds.\n\n## Step 2 — Write the recap\n\nAt most about 25 lines, self-contained, in the language of the user's latest message, with these sections:\n\n- **Goal**: one line.\n- **Done**: merged or pushed work, with PR numbers, repos and SHAs where relevant.\n- **State**: worktrees and branches still alive, uncommitted changes, running servers.\n- **Remaining**: ordered next steps.\n- **Constraints**: standing user decisions (for example \"no release unless asked\").\n- **Pointers**: plan files and docs to reread.\n\nLeave out exploration history, tool output, and anything already in the repo or in the project instructions.\n\n## Step 3 — Save\n\n```bash\ngit rev-parse --path-format=absolute --git-common-dir\n```\n\nWrite the recap to `agent-handoff.md` inside the directory it prints, overwriting any previous one. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, skip the file and say so.\n\n## Step 4 — Print\n\nPrint the recap as a fenced block, then one line:\n\n"
+    },
+    {
+      "claude": "- \"Run `/clear`, then paste the block (or `@<absolute path of the file>`).\"\n",
+      "codex": "- \"Start a new session and paste the block.\"\n"
+    }
+  ]
+}

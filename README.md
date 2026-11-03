@@ -37,3 +37,7 @@ Pour les règles à portée, `.agents/scopes.json` associe chaque nom à un obje
 ## Standalone review
 
 Use `$review` in Codex or `/agent-config:review` in Claude to review a branch, commit range, or existing PR without changing it. `create-pr` invokes the same workflow on its final state. Independence requires a fresh reviewer session when available.
+
+## Session handoff
+
+Use `$handoff` in Codex or `/agent-config:handoff [focus]` in Claude to write a recap of at most about 25 lines (goal, done, state, remaining, constraints, pointers). State claims are verified with read-only git/gh before they are written. The recap is saved to `agent-handoff.md` in the repository's common git directory (never in `git status`, survives worktree removal) and printed so you can `/clear` and paste it, or start a new session.
