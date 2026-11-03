@@ -64,9 +64,9 @@ for file in [*(root / 'commands').glob('*.md'), *(root / 'skills').glob('*/SKILL
             errors.append(f'{file}: missing or invalid reference {reference}')
 engine = Path(__file__).resolve().parent.parent
 workflows = {file.stem for base in (engine, root) for file in (base / 'workflows').glob('*.json')}
-for file in (root / 'instructions/workflows').glob('*'):
-    if file.suffix != '.md' or file.stem not in workflows:
-        errors.append(f'{file}: workflow policy must be <workflow>.md for an existing workflow')
+for file in (root / 'instructions/workflows').glob('*.md'):
+    if file.stem not in workflows:
+        errors.append(f'{file}: workflow policy must target an existing workflow')
     elif not file.read_text().strip():
         errors.append(f'{file}: empty workflow policy')
 if errors:

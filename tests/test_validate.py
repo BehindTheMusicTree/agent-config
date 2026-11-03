@@ -55,6 +55,7 @@ class ValidationTests(unittest.TestCase):
         policies = self.root / 'instructions/workflows'
         policies.mkdir(parents=True)
         (policies / 'create-pr.md').write_text('Merge with --admin.')
+        (policies / '.DS_Store').write_text('ignored like the installer does')
         self.assertEqual(self.validate().returncode, 0)
         (policies / 'missing.md').write_text('Text')
         result = self.validate()
