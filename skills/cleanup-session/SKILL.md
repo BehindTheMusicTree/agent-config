@@ -7,7 +7,7 @@ If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/cleanup-session.m
 
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
-Clean up the current repo after a finished session. Everything runs through `scripts/cleanup-session.sh` (branch/worktree logic is `clean-repos.sh` scoped to this repo, then docker). Always confirm before deleting.
+Clean up the current repo after a finished session. Everything runs through `scripts/cleanup-session.sh` (branch/worktree logic is `clean-repos.sh` scoped to this repo, then docker). Elements belonging to the current session — its branch (local and remote), its worktree, and the docker compose projects, containers, networks and images it created — are deleted without asking for confirmation. Always confirm before deleting anything else the script finds that is not related to the current session (other branches, their worktrees and remotes).
 
 Optional flags: **user-provided arguments** — pass through as-is: `--local-only`, `--remote-only`, `--exclude <branch>`, `--no-docker`. Empty = defaults.
 
@@ -21,9 +21,9 @@ Optional flags: **user-provided arguments** — pass through as-is: `--local-onl
 
 Candidate types (`local-squash-merged`, `dirty-worktrees`) behave as in `clean-repos`: squash-merged are never auto-deleted; dirty worktrees are never touched.
 
-## Step 2 — Confirm
+## Step 2 — Confirm unrelated candidates only
 
-Show the candidates and wait for explicit confirmation. Remote deletion and `docker … down -v` (volumes) are irreversible. Listed `running-processes` are killed before their worktree is removed. `skipped=shared` compose projects (not named after their worktree) are never downed. If docker is unresponsive the script runs `docker-unstick` (when installed: restarts Docker Desktop and prunes unused images/containers/build cache) — relay its output.
+Split the scan candidates into two groups. **Current session:** the branch(es) this conversation worked on, their remote branches and worktrees, and docker leftovers tied to those worktrees — apply these without asking. **Unrelated:** every other branch, remote branch or worktree the script found (it scans the whole repo, not just this session) — list them and wait for explicit confirmation of exactly those; pass `--exclude <branch>` for any not confirmed. Remote deletion and `docker … down -v` (volumes) are irreversible. Listed `running-processes` are killed before their worktree is removed. `skipped=shared` compose projects (not named after their worktree) are never downed. If docker is unresponsive the script runs `docker-unstick` (when installed: restarts Docker Desktop and prunes unused images/containers/build cache) — relay its output.
 
 ## Step 3 — Apply
 
