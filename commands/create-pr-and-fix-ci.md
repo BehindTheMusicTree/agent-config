@@ -3,6 +3,8 @@ description: Open a PR for the current branch (with review depth matched to risk
 model: sonnet
 ---
 
+If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/create-pr-and-fix-ci.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Open a PR for the current branch, then keep fixing failing CI checks and mergeability conflicts until every check passes and the PR can merge.
 
 Arguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--base` from the shared PR policy. `create-pr` enables auto-merge per the policy's **Auto-merge** section; pass `--no-auto-merge` through to skip it. Pushes made while fixing CI keep it enabled.

@@ -3,6 +3,8 @@ name: release
 description: Detect the project's branching model (strict Gitflow vs GitHub flow), verify the current branch follows it, and drive the release forward to a PR against main.
 ---
 
+If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/release.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
 Detect the repo's git flow, check the current branch against it, open the PR to `main`, and make sure a version release is actually cut. A merged PR is not a release.

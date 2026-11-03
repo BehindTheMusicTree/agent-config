@@ -3,6 +3,8 @@ name: handoff
 description: Write a self-contained recap of the current session, save it outside the working tree, and print it so a fresh session can resume after /clear or in a new session.
 ---
 
+If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/handoff.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Produce a handoff recap so the user can drop this session's context and continue in a fresh one. Strictly read-only apart from the single recap file below: no commits and no other edits.
 
 Optional focus: **user-provided arguments** — narrows the recap to that topic. Empty = whole session.

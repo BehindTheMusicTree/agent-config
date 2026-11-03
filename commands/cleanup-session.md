@@ -3,6 +3,8 @@ description: After a feature/fix/release is done, remove this repo's dev leftove
 model: sonnet
 ---
 
+If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/cleanup-session.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Clean up the current repo after a finished session. Everything runs through `scripts/cleanup-session.sh` (branch/worktree logic is `clean-repos.sh` scoped to this repo, then docker). Always confirm before deleting.
 
 Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote-only`, `--exclude <branch>`, `--no-docker`. Empty = defaults.

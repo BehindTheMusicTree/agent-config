@@ -3,6 +3,8 @@ name: create-pr-and-fix-ci
 description: Open a PR for the current branch (with review depth matched to risk), then loop on failing CI checks and mergeability until everything is clean.
 ---
 
+If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/create-pr-and-fix-ci.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
 Open a PR for the current branch, then keep fixing failing CI checks and mergeability conflicts until every check passes and the PR can merge.

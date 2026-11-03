@@ -51,6 +51,17 @@ class ValidationTests(unittest.TestCase):
         (self.root / 'references/pr-policy.md').write_text('Policy')
         self.assertEqual(self.validate().returncode, 0)
 
+    def test_workflow_policy_must_target_existing_workflow(self):
+        policies = self.root / 'instructions/workflows'
+        policies.mkdir(parents=True)
+        (policies / 'create-pr.md').write_text('Merge with --admin.')
+        (policies / '.DS_Store').write_text('ignored like the installer does')
+        self.assertEqual(self.validate().returncode, 0)
+        (policies / 'missing.md').write_text('Text')
+        result = self.validate()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('missing.md: workflow policy', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -3,6 +3,8 @@ description: Create a git worktree and branch for a new task, then start the rep
 model: haiku
 ---
 
+If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/new-worktree-and-serve.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Same as `new-worktree`, plus starting dev servers in the new worktree — for when you know you'll want the servers running right away, not just the worktree set up.
 
 The branch name is: **$ARGUMENTS**

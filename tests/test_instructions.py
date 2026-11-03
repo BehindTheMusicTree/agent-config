@@ -72,6 +72,54 @@ class InstructionsTests(unittest.TestCase):
         installer.apply(installer.prepare(self.home, {}, restore=True))
         self.assertEqual(original.read_text(), 'Personal original')
 
+    def private_source(self, global_text='Private working agreements', policies=None):
+        private = self.base / 'private'
+        (private / 'instructions/workflows').mkdir(parents=True)
+        (private / 'instructions/global.md').write_text(global_text)
+        (private / 'instructions/rules').mkdir()
+        (private / 'instructions/rules/internal.md').write_text('Private rule')
+        (private / 'instructions/scopes.json').write_text(json.dumps({
+            'internal': {'source': 'instructions/rules/internal.md', 'when': 'Working on internal code'},
+        }))
+        for name, text in (policies or {}).items():
+            (private / f'instructions/workflows/{name}.md').write_text(text)
+        return private
+
+    def test_composed_sources_share_one_title_and_routing_section(self):
+        sources = {'public': ROOT, 'private': self.private_source()}
+        for agent in ('claude', 'codex'):
+            entry = installer.render_sources(sources, agent)['CLAUDE.md' if agent == 'claude' else 'AGENTS.md']
+            self.assertEqual(entry.count('# Shared working agreements'), 1)
+            self.assertEqual(entry.count('## Shared rules to read when applicable'), 1)
+            self.assertIn('Working on internal code', entry)
+            self.assertLess(entry.index('Private working agreements'), entry.index('## Shared rules'))
+
+    def test_only_first_source_may_define_title(self):
+        sources = {'public': ROOT, 'private': self.private_source('# Private agreements\n\nText')}
+        with self.assertRaisesRegex(ValueError, 'Only the first source'):
+            installer.render_sources(sources, 'claude')
+
+    def test_workflow_policies_install_for_both_agents_and_restore(self):
+        sources = {'public': ROOT, 'private': self.private_source(policies={'create-pr': 'Merge with --admin.'})}
+        relative = installer.POLICY_PATH.format(name='create-pr')
+        for agent in ('claude', 'codex'):
+            self.assertIn('Merge with --admin.', installer.render_sources(sources, agent)[relative])
+        self.install(installer.render_sources(sources, 'claude'))
+        self.assertIn('Merge with --admin.', (self.home / relative).read_text())
+        installer.apply(installer.prepare(self.home, {}, restore=True))
+        self.assertFalse((self.home / relative).exists())
+
+    def test_workflow_policy_for_unknown_workflow_fails(self):
+        sources = {'public': ROOT, 'private': self.private_source(policies={'missing': 'Text'})}
+        with self.assertRaisesRegex(ValueError, 'unknown workflow'):
+            installer.render_sources(sources, 'claude')
+
+    def test_every_workflow_reads_its_policy(self):
+        for file in (ROOT / 'workflows').glob('*.json'):
+            relative = installer.POLICY_PATH.format(name=file.stem)
+            self.assertIn(relative, (ROOT / 'commands' / f'{file.stem}.md').read_text())
+            self.assertIn(relative, (ROOT / 'skills' / file.stem / 'SKILL.md').read_text())
+
     def test_first_install_backup_reinstall_update_and_restore(self):
         original = '# Personal instructions\n'
         path = self.home / 'CLAUDE.md'

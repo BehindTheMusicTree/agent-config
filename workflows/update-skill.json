@@ -11,6 +11,10 @@
       "shared": "---\n\n"
     },
     {
+      "claude": "If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/update-skill.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n\n",
+      "codex": "If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/update-skill.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n\n"
+    },
+    {
       "claude": "Work in the source checkout specified by the user or the configured owner of the requested skill. Inspect the working tree first and preserve existing changes. The requested change is: **$ARGUMENTS**. Ask only if the intended change is ambiguous.\n",
       "codex": "Work in the source checkout specified by the user or the configured owner of the requested skill. Verify that it is a Git checkout before editing. Never edit an installed release snapshot or a plugin cache. Inspect the working tree and preserve existing changes.\n"
     },
