@@ -11,10 +11,6 @@
       "shared": "description: Produce a PR description for the current branch, push it, and open the PR — including a changelog entry if needed and a proposed merge title.\n"
     },
     {
-      "claude": "model: sonnet\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n\n"
     },
     {

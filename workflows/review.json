@@ -11,10 +11,6 @@
       "shared": "description: Read-only correctness review of a branch, commit range, or existing pull request.\n"
     },
     {
-      "claude": "model: sonnet\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n\n"
     },
     {

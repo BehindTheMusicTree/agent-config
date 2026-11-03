@@ -1,6 +1,5 @@
 ---
 description: Write a self-contained recap of the current session, save it outside the working tree, and print it so a fresh session can resume after /clear or in a new session.
-model: sonnet
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/handoff.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
