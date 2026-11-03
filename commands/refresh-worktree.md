@@ -3,6 +3,8 @@ description: Reuse the current git worktree for a new feature — stop any dev s
 model: sonnet
 ---
 
+If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/refresh-worktree.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Move the current worktree from an already-merged feature branch to a new one, without removing/re-adding the worktree directory or reinstalling dependencies, then serve the project again:
 
 ```text

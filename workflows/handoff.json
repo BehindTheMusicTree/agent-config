@@ -18,6 +18,10 @@
       "shared": "---\n"
     },
     {
+      "claude": "\nIf `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/handoff.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n",
+      "codex": "\nIf `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/handoff.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n"
+    },
+    {
       "shared": "\nProduce a handoff recap so the user can drop this session's context and continue in a fresh one. Strictly read-only apart from the single recap file below: no commits and no other edits.\n\n"
     },
     {

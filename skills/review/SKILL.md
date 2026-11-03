@@ -3,6 +3,8 @@ name: review
 description: Read-only correctness review of a branch, commit range, or existing pull request.
 ---
 
+If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/review.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Resolve `SKILL_REPO_ROOT` from this SKILL.md's actual location: follow any symlink for the skill directory, then take its grandparent directory. Read `$SKILL_REPO_ROOT/references/pr-policy.md` for risk depth and the reviewer contract.
 
 Review the user-specified branch, `base..head` range, or PR number/URL; if omitted, review the current branch against its detected base. Resolve a PR's repository, base and head using `gh pr view`; fetch missing refs when necessary. Pin base, merge base and head SHAs, and inspect the committed diff and relevant callers, tests and project instructions. Report dirty worktree changes separately; do not silently include them in a committed-range review. For a release, also inspect the delivery range under the policy. If a range cannot be resolved, report the limitation rather than guessing.

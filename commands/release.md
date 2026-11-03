@@ -3,6 +3,8 @@ description: Detect the project's branching model (strict Gitflow vs GitHub flow
 model: opus
 ---
 
+If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/release.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
+
 Detect the repo's git flow, check the current branch against it, open the PR to `main`, and make sure a version release is actually cut. A merged PR is not a release.
 
 Optional context: **$ARGUMENTS** (e.g. a version number or bump, optionally with `--auto`).
