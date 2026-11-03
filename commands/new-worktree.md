@@ -1,6 +1,5 @@
 ---
 description: Create a git worktree and branch for a new task, then copy gitignored env files into it so the worktree is immediately runnable.
-model: haiku
 ---
 
 Create a new git worktree with its own branch, then populate it with the same gitignored env files (`.env`, `.env.local`, etc.) the main worktree already has, so it's runnable without a manual setup pass.
