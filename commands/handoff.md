@@ -27,10 +27,10 @@ Leave out exploration history, tool output, and anything already in the repo or 
 ## Step 3 — Save
 
 ```bash
-f="$(git rev-parse --path-format=absolute --git-common-dir)/agent-handoff.md"
+git rev-parse --path-format=absolute --git-common-dir
 ```
 
-Write the recap to that path, overwriting any previous one. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, skip the file and say so.
+Write the recap to `agent-handoff.md` inside the directory it prints, overwriting any previous one. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, skip the file and say so.
 
 ## Step 4 — Print
 
