@@ -99,7 +99,7 @@ Read the PR back and verify its head SHA matches the reviewed/pushed commit befo
 
 ## Step 11 — Auto-merge
 
-Apply the policy's **Auto-merge** section: unless the user opted out, enable auto-merge on the ready, non-draft PR for intent `change` or `dependency-bump`, then read back `autoMergeRequest`. Never for `release`, `version-bump` or `back-merge`, and never with `--admin`.
+Apply the policy's **Auto-merge** section: unless the user opted out, enable auto-merge on the ready, non-draft PR for any intent, then read back `autoMergeRequest`. Never with `--admin`.
 
 ## Output format
 

@@ -30,7 +30,7 @@ Review behavior, callers, error paths, tests and documentation. Apply depth from
 
 ### release
 
-Default at least standard. Verify source/target and branching model, canonical version, last published release and the full delivery range, included changes and release notes, migrations, compatibility and recovery. A small version-only PR can ship a large set of earlier changes: distinguish the PR diff from the release content. Reuse prior reviews only with exact ranges and relevant evidence; independently review uncovered release/integration risks rather than blindly re-reviewing all unchanged code. A deep included risk requires deep release handling. Never bump a version twice or tag an unmerged feature commit. Publication, merge permission and CI rules remain separate from review depth, and release PRs are never auto-merged.
+Default at least standard. Verify source/target and branching model, canonical version, last published release and the full delivery range, included changes and release notes, migrations, compatibility and recovery. A small version-only PR can ship a large set of earlier changes: distinguish the PR diff from the release content. Reuse prior reviews only with exact ranges and relevant evidence; independently review uncovered release/integration risks rather than blindly re-reviewing all unchanged code. A deep included risk requires deep release handling. Never bump a version twice or tag an unmerged feature commit. Publication, merge permission and CI rules remain separate from review depth.
 
 ### version-bump
 
@@ -48,7 +48,7 @@ Verify the released source and intended integration target from project conventi
 
 After `create-pr` opens or updates a PR, enable auto-merge on it unless the user opted out (`--no-auto-merge`, or any instruction not to merge).
 
-- Applies only to ready, non-draft PRs with intent `change` or `dependency-bump`. Never for `release`, `version-bump` or `back-merge`: releases wait until the user asks.
+- Applies to ready, non-draft PRs of every intent, including `release`, `version-bump` and `back-merge`.
 - Run `gh pr merge <pr> --auto` with the repository's merge method: the one its contributing docs state, else `--merge` under Gitflow and `--squash` under GitHub flow. Do not pass `--delete-branch` (it breaks when the head is a trunk branch and removes a branch a worktree may still use) and never `--admin`.
 - Auto-merge only completes once required checks pass. It is not a CI bypass, and a failing check still needs fixing.
 - If the repository disallows auto-merge or the call fails, report that and leave the PR open. Do not fall back to an immediate merge.

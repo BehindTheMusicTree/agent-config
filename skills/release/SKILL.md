@@ -76,9 +76,9 @@ Non-empty → `git merge origin/main` (not rebase) and resolve conflicts before 
 
 ## Step 6 — PR to `main`
 
-Invoke `$create-pr --intent release --base origin/main`, passing the resolved release content and prior evidence. It creates or updates the intended PR; reuse an existing matching source/target PR rather than opening a duplicate. Do not publish before it merges. For Gitflow, record the required back-merge target now.
+Invoke `$create-pr --intent release --base origin/main`, passing the resolved release content and prior evidence. It creates or updates the intended PR; reuse an existing matching source/target PR rather than opening a duplicate. Do not publish before it merges. Auto-merge follows the shared policy; pass `--no-auto-merge` to hold the merge for a manual decision. For Gitflow, record the required back-merge target now.
 
-## Step 6a — Merge (only with `--auto` or equivalent session authorization)
+## Step 6a — Merge (with `--auto`, equivalent session authorization, or once auto-merge from Step 6 completes)
 
 1. Run the CI/mergeability loop from `$create-pr-and-fix-ci` on the release PR, carrying its profile and evidence; then merge with the project's permitted strategy.
 2. Update local main with a fast-forward and complete Step 7 on the merged commit.
