@@ -1,6 +1,5 @@
 ---
 description: Read-only correctness review of a branch, commit range, or existing pull request.
-model: sonnet
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/review.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.

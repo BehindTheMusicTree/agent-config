@@ -11,10 +11,6 @@
       "shared": "description: Create a git worktree and branch for a new task, then start the repo's dev servers in it if it has a dev-up.sh script.\n"
     },
     {
-      "claude": "model: haiku\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n"
     },
     {

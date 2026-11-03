@@ -11,10 +11,6 @@
       "shared": "description: Write a self-contained recap of the current session, save it outside the working tree, and print it so a fresh session can resume after /clear or in a new session.\n"
     },
     {
-      "claude": "model: sonnet\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n"
     },
     {

@@ -1,6 +1,5 @@
 ---
 description: Open a PR for the current branch (with review depth matched to risk), then loop on failing CI checks and mergeability until everything is clean.
-model: sonnet
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/create-pr-and-fix-ci.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.

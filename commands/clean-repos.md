@@ -1,6 +1,5 @@
 ---
 description: Scan every repo under ~/git/ for branches already merged into trunk (or develop under Gitflow) and worktrees pointing at them, then delete what's confirmed.
-model: haiku
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/clean-repos.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.

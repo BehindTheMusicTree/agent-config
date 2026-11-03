@@ -11,10 +11,6 @@
       "shared": "description: Reuse the current git worktree for a new feature — stop any dev server still running for it, reset onto the integration branch, create the new branch, then scan for available ports and start the project's dev server(s), reporting the URLs.\n"
     },
     {
-      "claude": "model: sonnet\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n"
     },
     {

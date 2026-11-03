@@ -1,6 +1,6 @@
 {
   "name": "agent-config",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "license": "MIT",
   "description": "Shared agent workflows and installation tools for Claude Code and Codex",
   "author": {

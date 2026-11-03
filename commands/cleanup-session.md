@@ -1,6 +1,5 @@
 ---
 description: After a feature/fix/release is done, remove this repo's dev leftovers — merged branches, their worktrees, and docker containers/networks/images.
-model: sonnet
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/cleanup-session.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.

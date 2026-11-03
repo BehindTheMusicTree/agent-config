@@ -1,6 +1,5 @@
 ---
 description: Reuse the current git worktree for a new feature — stop any dev server still running for it, reset onto the integration branch, create the new branch, then scan for available ports and start the project's dev server(s), reporting the URLs.
-model: sonnet
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/refresh-worktree.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.

@@ -11,10 +11,6 @@
       "shared": "description: Open a PR for the current branch (with review depth matched to risk), then loop on failing CI checks and mergeability until everything is clean.\n"
     },
     {
-      "claude": "model: sonnet\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n"
     },
     {

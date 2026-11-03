@@ -1,6 +1,5 @@
 ---
 description: Produce a PR description for the current branch, push it, and open the PR — including a changelog entry if needed and a proposed merge title.
-model: sonnet
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/create-pr.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
