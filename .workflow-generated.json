@@ -5,7 +5,7 @@
   "commands/create-pr.md": "bd2c3347f3cd6b4fa9f4e87f8b87b4a3dae67fe629dbe3e28a694a19f74fb42a",
   "commands/handoff.md": "b9535c3cfa9cb68b7f94c503c0790f534861f6e9e540d01b1ef763bc787f1495",
   "commands/new-worktree-and-serve.md": "9de1d33b4590f10a762981a0032d97d6517723c6ad58389e9be0a21506f5c260",
-  "commands/new-worktree.md": "8c144522fb9a07cb8036277c5da5bd70be4935ee121c9fdd3f2ce92dfd27a2b5",
+  "commands/new-worktree.md": "5587c3e11a0a4b6e784b710b21c14e76b669bc5795ae71e14a0a6aa88c70de32",
   "commands/refresh-worktree.md": "30b742164c424f82949c13db2ebc42dd16ea46ee4ef259547cb0a022d20d8e27",
   "commands/release.md": "ddb7aa28733176649a3d1c8b9c3fda17a16246c84d9478db5f815241c19c9e89",
   "commands/review.md": "0143cfb0ab504f35818917676755ad4d7a95647dc67095349fc9dfb039ecfc18",
