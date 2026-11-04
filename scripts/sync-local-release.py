@@ -33,10 +33,19 @@ def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sourc
     changes = []
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         changes.extend(instructions.prepare(home, instructions.render_sources(sources, agent)))
-    changes.extend(compact.prepare(claude_home, codex_home))
+    if compact.claude_window(claude_home) is not None:
+        changes.extend(compact.prepare(claude_home, codex_home, compact_root(sources)))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     return desired, link_changes, changes
+
+
+def compact_root(sources):
+    """Return the single source that ships settings/compact.json."""
+    roots = [root for root in sources.values() if (root / 'settings/compact.json').is_file()]
+    if len(roots) != 1:
+        raise ValueError(f'Exactly one source must provide settings/compact.json, found {len(roots)}')
+    return roots[0]
 
 
 def synchronize_source(source, claude_home, codex_home, adopt_from=None):
@@ -48,7 +57,7 @@ def synchronize_source(source, claude_home, codex_home, adopt_from=None):
     changes = []
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         changes.extend(instructions.prepare(home, instructions.render(source, agent)))
-    changes.extend(compact.prepare(claude_home, codex_home))
+    changes.extend(compact.prepare(claude_home, codex_home, source))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     _apply_plan(destination, desired, link_changes, changes,

@@ -17,12 +17,14 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 CLAUDE_KEY = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW'
 CODEX_KEY = 'model_auto_compact_token_limit'
-CODEX_LINE = re.compile(rf'^{CODEX_KEY}\s*=\s*(\S+)[ \t]*(#.*)?$', re.MULTILINE)
-TABLE = re.compile(r'^\s*\[', re.MULTILINE)
+CODEX_LINE = re.compile(rf'^[ \t]*"?{CODEX_KEY}"?[ \t]*=[ \t]*([^#\n]*?)[ \t]*(#.*)?$', re.MULTILINE)
 
 
 def load_reserve(root=ROOT):
-    data = json.loads((root / 'settings/compact.json').read_text())
+    path = root / 'settings/compact.json'
+    if not path.is_file():
+        raise ValueError(f'Missing Claude compaction reserve: {path}')
+    data = json.loads(path.read_text())
     reserve = data.get('claudeCompactReserveTokens')
     if not isinstance(reserve, int) or isinstance(reserve, bool) or reserve <= 0:
         raise ValueError('settings/compact.json: claudeCompactReserveTokens must be a positive integer')
@@ -34,7 +36,11 @@ def claude_window(claude_home):
     path = claude_home / 'settings.json'
     if not path.is_file():
         return None
-    value = json.loads(path.read_text()).get('env', {}).get(CLAUDE_KEY)
+    settings = json.loads(path.read_text())
+    env = settings.get('env') if isinstance(settings, dict) else None
+    if not isinstance(settings, dict) or not isinstance(env, (dict, type(None))):
+        raise ValueError(f'{path}: expected an object with an optional "env" object')
+    value = (env or {}).get(CLAUDE_KEY)
     if value is None:
         return None
     if not isinstance(value, (str, int)) or isinstance(value, bool) or not str(value).isdigit():
@@ -50,18 +56,23 @@ def codex_limit(window, reserve):
 
 
 def render_codex(text, limit):
-    """Set the top-level Codex key in config.toml text, leaving every other line untouched."""
-    first_table = TABLE.search(text)
-    top_level_end = first_table.start() if first_table else len(text)
+    """Set the top-level Codex key, accepting an edit only if it changes nothing else once parsed."""
+    try:
+        import tomllib
+    except ModuleNotFoundError as error:
+        raise ValueError('Deriving the Codex compaction threshold requires Python 3.11+ (tomllib)') from error
+    original = tomllib.loads(text)
+    expected = {**original, CODEX_KEY: limit}
     line = f'{CODEX_KEY} = {limit}'
-    matches = [m for m in CODEX_LINE.finditer(text) if m.start() < top_level_end]
-    if len(matches) > 1:
-        raise ValueError(f'Duplicate top-level {CODEX_KEY} in Codex config')
-    if matches:
-        match = matches[0]
-        comment = f' {match.group(2)}' if match.group(2) else ''
-        return text[:match.start()] + line + comment + text[match.end():]
-    return line + '\n' + text
+    candidates = [text[:m.start()] + line + (f' {m.group(2)}' if m.group(2) else '') + text[m.end():]
+                  for m in CODEX_LINE.finditer(text)] if CODEX_KEY in original else [line + '\n' + text]
+    for candidate in candidates:
+        try:
+            if tomllib.loads(candidate) == expected:
+                return candidate
+        except tomllib.TOMLDecodeError:
+            continue
+    raise ValueError(f'Cannot safely set top-level {CODEX_KEY}; set it to {limit} by hand')
 
 
 def prepare(claude_home, codex_home, root=ROOT):
@@ -76,12 +87,6 @@ def prepare(claude_home, codex_home, root=ROOT):
     before = {'text': path.read_text(encoding='utf-8'), 'mode': path.stat().st_mode & 0o777} if path.exists() else None
     after = {'text': render_codex(before['text'] if before else '', limit),
              'mode': before['mode'] if before else 0o600}
-    try:
-        import tomllib
-    except ModuleNotFoundError:
-        tomllib = None
-    if tomllib and tomllib.loads(after['text']).get(CODEX_KEY) != limit:
-        raise ValueError(f'Could not set {CODEX_KEY} in {path}')
     return [] if before == after else [(path, before, after)]
 
 

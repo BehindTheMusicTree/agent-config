@@ -23,7 +23,7 @@ class LocalReleaseTests(unittest.TestCase):
         self.git('init', '-q')
         self.git('config', 'user.name', 'Test')
         self.git('config', 'user.email', 'test@example.invalid')
-        for directory in ('instructions', 'adapters'):
+        for directory in ('instructions', 'adapters', 'settings'):
             shutil.copytree(ROOT / directory, self.repo / directory)
         (self.repo / '.claude-plugin').mkdir()
         (self.repo / '.claude-plugin/plugin.json').write_text(json.dumps({'version': '1.0.0'}))

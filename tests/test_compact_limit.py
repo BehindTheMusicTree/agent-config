@@ -72,5 +72,51 @@ class CompactLimitTests(unittest.TestCase):
             compact.prepare(self.claude, self.codex)
 
 
+    def test_ignores_key_text_inside_strings_and_arrays(self):
+        self.set_claude('160000')
+        original = ('a = [\n  [1, 2],\n]\nmodel_auto_compact_token_limit = 5\n'
+                    'b = """\nmodel_auto_compact_token_limit = 7\n"""\n[tui]\nx = 1\n')
+        (self.codex / 'config.toml').write_text(original)
+        [(_, _, after)] = compact.prepare(self.claude, self.codex)
+        self.assertEqual(after['text'], original.replace('= 5\n', f'= {160000 - self.reserve}\n'))
+
+    def test_handles_indented_and_quoted_keys(self):
+        self.set_claude('160000')
+        for original in ('  model_auto_compact_token_limit = 5\n', '"model_auto_compact_token_limit" = 5\n'):
+            (self.codex / 'config.toml').write_text(original)
+            [(_, _, after)] = compact.prepare(self.claude, self.codex)
+            self.assertIn(f'model_auto_compact_token_limit = {160000 - self.reserve}', after['text'])
+
+    def test_refuses_key_defined_only_as_dotted_or_inline_table(self):
+        self.set_claude('160000')
+        (self.codex / 'config.toml').write_text('model_auto_compact_token_limit = 5 ; junk\n')
+        with self.assertRaises(Exception):
+            compact.prepare(self.claude, self.codex)
+
+    def test_rejects_non_object_env(self):
+        for settings in ('{"env": null}', '{"env": []}', '[]'):
+            (self.claude / 'settings.json').write_text(settings)
+            if settings == '{"env": null}':
+                self.assertIsNone(compact.claude_window(self.claude))
+                continue
+            with self.assertRaises(ValueError):
+                compact.claude_window(self.claude)
+
+    def test_requires_tomllib(self):
+        from unittest.mock import patch
+        self.set_claude('160000')
+        with patch.dict('sys.modules', {'tomllib': None}), self.assertRaises(ValueError):
+            compact.prepare(self.claude, self.codex)
+
+    def test_reserve_comes_from_given_source_root(self):
+        self.set_claude('160000')
+        source = self.codex.parent / 'snapshot'
+        (source / 'settings').mkdir(parents=True)
+        (source / 'settings/compact.json').write_text('{"claudeCompactReserveTokens": 10000}')
+        [(_, _, after)] = compact.prepare(self.claude, self.codex, source)
+        self.assertEqual(after['text'], 'model_auto_compact_token_limit = 150000\n')
+        with self.assertRaises(ValueError):
+            compact.prepare(self.claude, self.codex, self.codex.parent / 'old-snapshot')
+
 if __name__ == '__main__':
     unittest.main()
