@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize Codex skills and global instructions from a local release tag."""
+"""Synchronize Codex skills, global instructions and the derived Codex compaction threshold from a local release tag."""
 import argparse
 import importlib.util
 import os
@@ -21,6 +21,7 @@ releases = load('release_snapshot', 'prepare-release.py')
 skills = load('codex_skills', 'sync-codex-skills.py')
 instructions = load('global_instructions', 'install-instructions.py')
 plugins = load('claude_plugin', 'sync-claude-plugin.py')
+compact = load('compact_limit', 'sync-compact-limit.py')
 
 
 def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sources=()):
@@ -32,6 +33,7 @@ def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sourc
     changes = []
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         changes.extend(instructions.prepare(home, instructions.render_sources(sources, agent)))
+    changes.extend(compact.prepare(claude_home, codex_home))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     return desired, link_changes, changes
@@ -46,6 +48,7 @@ def synchronize_source(source, claude_home, codex_home, adopt_from=None):
     changes = []
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         changes.extend(instructions.prepare(home, instructions.render(source, agent)))
+    changes.extend(compact.prepare(claude_home, codex_home))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     _apply_plan(destination, desired, link_changes, changes,

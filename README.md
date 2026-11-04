@@ -26,6 +26,10 @@ The updater reconciles all configured sources together. Personal files and local
 
 Keep the previous release snapshots and configuration for recovery. Roll back a pair by pinning the preceding private version in the profile and synchronizing again. Global instruction originals can be restored through `scripts/install-instructions.py --restore`.
 
+## Compaction threshold
+
+Set the compaction point once, in Claude: `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` in `~/.claude/settings.json`. Claude Code compacts at that window minus an internal, undocumented reserve; Codex compacts when the active context reaches `model_auto_compact_token_limit`. Synchronization writes `model_auto_compact_token_limit = window - claudeCompactReserveTokens` into the top level of `~/.codex/config.toml`, changing only that line, and `--check` reports drift. The reserve lives in `settings/compact.json`; re-measure it after a Claude Code upgrade (`/context`, "Autocompact buffer", or the observed compaction point). When the Claude variable is unset, Codex is left unchanged. Preview with `python3 scripts/sync-compact-limit.py`, write with `--apply`.
+
 ## Maintenir les workflows
 
 Les fichiers `workflows/<name>.json` contiennent les blocs partagés et les variantes propres à Claude ou Codex. Modifier ces sources, puis exécuter `python3 scripts/render-workflows.py --apply`. Les fichiers sous `commands/` et `skills/` sont les sorties distribuées. `python3 scripts/render-workflows.py` vérifie leur concordance sans les modifier et fait partie de `scripts/lint.sh`. Le manifeste `.workflow-generated.json` protège les sorties modifiées localement ; vérifier et résoudre un conflit avant de régénérer. Les descriptions, modèles et chemins spécifiques au client restent dans les blocs de variante.
