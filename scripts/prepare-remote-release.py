@@ -209,7 +209,7 @@ def check_profile(profile, releases, claude_home, codex_home):
     sync.plugins.verify_sources(prepared, claude_home)
     _, links, changes = sync.plan_sources(sources, claude_home, codex_home)
     if links or changes:
-        raise ValueError('Skills or instructions differ from active sources')
+        raise ValueError('Skills, instructions or the Codex compaction threshold differ from active sources')
     return sources
 
 
@@ -242,6 +242,8 @@ def check_remote(repo, version, releases, claude_home, codex_home):
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         if sync.instructions.prepare(home, sync.instructions.render(source, agent)):
             raise ValueError(f'{agent} global instructions differ from active release')
+    if sync.compact.prepare(claude_home, codex_home, source):
+        raise ValueError('Codex compaction threshold differs from the Claude compaction window')
     return source
 
 

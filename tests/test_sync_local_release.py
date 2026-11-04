@@ -23,7 +23,7 @@ class LocalReleaseTests(unittest.TestCase):
         self.git('init', '-q')
         self.git('config', 'user.name', 'Test')
         self.git('config', 'user.email', 'test@example.invalid')
-        for directory in ('instructions', 'adapters'):
+        for directory in ('instructions', 'adapters', 'settings'):
             shutil.copytree(ROOT / directory, self.repo / directory)
         (self.repo / '.claude-plugin').mkdir()
         (self.repo / '.claude-plugin/plugin.json').write_text(json.dumps({'version': '1.0.0'}))
@@ -51,6 +51,20 @@ class LocalReleaseTests(unittest.TestCase):
         self.assertIn(str(source), (self.codex / 'AGENTS.md').read_text())
         self.assertTrue((self.claude / 'CLAUDE.md').is_file())
         self.assertEqual(self.execute(), source)
+
+    def test_derives_codex_compaction_threshold_and_rolls_it_back(self):
+        self.claude.mkdir()
+        self.codex.mkdir()
+        (self.claude / 'settings.json').write_text('{"env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "160000"}}')
+        (self.codex / 'config.toml').write_text('model = "x"\n')
+        self.plugin.side_effect = RuntimeError('installation failed')
+        with self.assertRaises(RuntimeError):
+            self.execute()
+        self.assertEqual((self.codex / 'config.toml').read_text(), 'model = "x"\n')
+        self.plugin.side_effect = None
+        self.execute()
+        limit = 160000 - sync.compact.load_reserve()
+        self.assertEqual((self.codex / 'config.toml').read_text(), f'model_auto_compact_token_limit = {limit}\nmodel = "x"\n')
 
     def test_plugin_failure_restores_both_agent_files_and_links(self):
         self.claude.mkdir()
