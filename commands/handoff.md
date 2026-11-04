@@ -36,12 +36,13 @@ Never include secret values, tokens, passwords or credentials; reference secrets
 ```bash
 git rev-parse --path-format=absolute --git-common-dir
 git branch --show-current
+git rev-parse --short HEAD
 ```
 
-Write the recap to `agent-handoff-<branch>.md` inside the common git directory, with every `/` in the branch name replaced by `-` (use `detached-<short SHA>` when HEAD is detached), overwriting any previous recap for that branch. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, skip the file and say so.
+Write the recap to `agent-handoff-<name>.md` inside the common git directory, overwriting any previous recap for that name. `<name>` is the branch name with every character outside `[A-Za-z0-9._-]` replaced by `-`; when `git branch --show-current` prints nothing, HEAD is detached and `<name>` is `detached-<short SHA>`. Keep the absolute path for Step 4. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, skip the file and say so.
 
 ## Step 4 — Print
 
 Print the recap as a fenced block, then one line:
 
-- "Run `/clear`, then paste the block (or `@<absolute path of the file>`)."
+- "Run `/clear`, then paste the block (or `@<absolute path of the file written in Step 3>`)."
