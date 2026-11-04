@@ -1,5 +1,5 @@
 ---
-description: Write a self-contained recap of the current session, save it outside the working tree, and print it so a fresh session can resume after /clear or in a new session.
+description: Write a self-contained recap of the current session, save it to a file outside the working tree so a fresh session can resume after /clear or in a new session.
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/handoff.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
@@ -39,10 +39,12 @@ git branch --show-current
 git rev-parse --short HEAD
 ```
 
-Write the recap to `agent-handoff-<name>.md` inside the common git directory, overwriting any previous recap for that name. `<name>` is the branch name with every character outside `[A-Za-z0-9._-]` replaced by `-`; when `git branch --show-current` prints nothing, HEAD is detached and `<name>` is `detached-<short SHA>`. Keep the absolute path for Step 4. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, skip the file and say so.
+Write the recap to `agent-handoff-<name>.md` inside the common git directory, overwriting any previous recap for that name. `<name>` is the branch name with every character outside `[A-Za-z0-9._-]` replaced by `-`; when `git branch --show-current` prints nothing, HEAD is detached and `<name>` is `detached-<short SHA>`. Keep the absolute path for Step 4. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, or when the write fails, no file exists: say so and print the recap in Step 4.
 
-## Step 4 — Print
+## Step 4 — Report
 
-Print the recap as a fenced block, then one line:
+When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with one line only:
 
-- "Run `/clear`, then paste the block (or `@<absolute path of the file written in Step 3>`)."
+- "Run `/clear`, then send `@<absolute path of the file written in Step 3>`."
+
+When no file was written, print the recap as a fenced block instead, followed by: "Run `/clear`, then paste the block."
