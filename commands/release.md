@@ -7,132 +7,69 @@ If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/release.m
 
 Detect the repo's git flow, check the current branch against it, open the PR to `main`, and make sure a version release is actually cut. A merged PR is not a release.
 
-Optional context: **$ARGUMENTS** (e.g. a version number or bump, optionally with `--auto`).
 
-**`--auto`** — the caller has already authorized the full release. Every "confirm"/"ask" gate below is skipped: derive the version from the argument or Step 7.4's bump rule and proceed. Additionally, drive it to the end instead of stopping at the PR — see Step 6a. Repo `CLAUDE.md` rules (where tags are cut, `npm pkg set` vs `npm version`) still win over anything here. Genuinely contradictory signals (Step 1) or a gap other than a missing release branch (Step 4) still stop — report them instead of asking.
+Prepare a reviewed release PR, then follow its tag, required publications and declared deployments. A merged PR alone does not establish publication. Read `references/release-contract.md` from this plugin/skill repository for the CI/legacy contract and recovery rules.
 
-## Shared PR policy
+A release must be explicitly requested in this conversation. Planning, fixing release infrastructure or preparing a migration does not authorize a bump, tag, package publish or production deployment. Invoking this release workflow is a release request; `--auto` is valid only under that authorization. Honor existing session authorization instead of repeating confirmation gates.
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. This workflow owns branching, versioning and publication; `agent-config:create-pr` owns intent checks, coverage and final PR review. Forward exact source/target, intent/depth, release range and review/validation evidence. Select `release` for the delivery PR, `version-bump` only for a separate mechanical bump, and `back-merge` for integration into develop. Do not reuse light bump review as proof of low release risk.
+Optional context: **$ARGUMENTS** (version/bump, optionally `--auto`).
 
-## Step 1 — Flow
+## Step 1 — Resolve the release and its owner
 
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/detect-branch-model.sh"   # flow=gitflow|github, trunk=<branch>
-```
+Fetch each involved repository before assessing its current integration/main state. Preserve unrelated checkouts and use a task worktree. Read project instructions and documented release tools before any mutating command. Inspect scripts for commits, tags, pushes, required secrets and branch expectations.
 
-Signals look contradictory → state your read and ask.
+Run `"${CLAUDE_PLUGIN_ROOT}/scripts/detect-branch-model.sh"` and read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md`.
 
-## Step 2 — Current branch
+Use the detector's documented branch model and explicit overrides; report genuinely contradictory evidence. Record canonical version, actual previous tag and its dereferenced commit, intended source/target and release range. Inspect the changes being delivered, including breaking changes, migrations, compatibility and rollback.
 
-```bash
-git branch --show-current
-git status
-git log --oneline main...HEAD | head -20
-```
+Before running release tooling, read `.github/release-policy.json` on `origin/main` and the intended release source when present. A present but invalid contract is an error, never a reason to fall back to legacy. A configured CI contract owns tag creation; a repository without it keeps its documented legacy owner. If the source introduces/changes a contract, merge that migration separately before preparing a bump: the shared tagger deliberately does not publish on activation and refuses policy changes combined with a bump.
 
-Note: name vs. the flow's conventions, its base, ahead/behind.
+## Step 2 — Prepare version and changelog in a PR
 
-## Step 3 — Required path to `main`
+For CI ownership, the contract specifies the only canonical source, its mirrors, prefix, changelog and expected GitHub Release/packages. Read all sources explicitly; do not substitute a dummy root package version. Verify stable SemVer, synchronized mirrors, a nonempty versioned changelog and progression from main. No version change means no release intent, including an untagged existing main version. Do not tag that version to compensate.
 
-- **GitHub flow**: branch → PR to `main`.
-- **Gitflow**:
-  - `feature/*` → PR to `develop`, never `main`.
-  - `release/*` (from `develop`) → PR to `main`, then merge-back PR to `develop`.
-  - `hotfix/*` (from `main`) → PR to `main`, then merge-back PR to `develop`.
-  - On `develop` with no release branch → create `release/*` first.
+Reuse project preparation tools only if they stop before tagging/pushing main. A tool that commits, tags and pushes main must be adapted to a preparation mode or replaced with a reviewed branch change; do not run it then try to undo its side effects. Preserve coordinated versions, generated mirrors and project validation. Do not impose a new versioning tool.
 
-## Step 4 — Gaps
+Choose the version from explicit arguments or the reviewed changes: breaking changes → major (or minor below 1.0.0 under SemVer §4); features → minor; fixes → patch. If the intended version is already prepared, validate it and do not bump it twice. State the exact planned version and effects; ask only for missing release scope or approval not already supplied.
 
-**Missing `release/*`/`hotfix/*` branch** — the only gap this command fixes itself:
+Prepare on a task branch before its PR. GitHub Flow targets main. Gitflow features enter develop first; prepare a release branch from fresh develop, or a hotfix branch from main, then target main and record the back-merge target. Use the worktree workflow for creating task checkouts. Never push a bump directly to main. If a merged PR omitted its version preparation, make a new preparation PR.
 
-1. Version: from `$ARGUMENTS`, else derive from `package.json`/`CHANGELOG.md`/tags, else ask.
-2. Confirm name and base (`release/x.y.z` off `develop`, `hotfix/x.y.z` off `main`).
-3. Detect release tooling:
-   ```bash
-   grep -E '"release"|"version"|"changeset"|"prepare-release"' package.json 2>/dev/null
-   ls .changeset/ 2>/dev/null
-   ls scripts/*release* scripts/*version* Makefile 2>/dev/null
-   grep -rliE 'release-please|semantic-release|standard-version|changesets/action' .github/workflows/ 2>/dev/null
-   ```
-   Found → **read it before running it**: expected branch/tree state, required env/secrets, whether it pushes/tags itself. If it needs a CI-only secret, trigger it the way the workflow expects (tag, merge, `gh workflow run`) instead of running it locally. Use it wherever it covers branching, versioning, or tagging.
-4. No tooling → create the branch:
-   ```bash
-   git checkout develop && git pull --ff-only && git checkout -b release/x.y.z && git push -u origin release/x.y.z
-   # or: git checkout main && git pull --ff-only && git checkout -b hotfix/x.y.z && git push -u origin hotfix/x.y.z
-   ```
-5. No tooling but a manual release convention exists (see Step 7) → do the version cut **now, on this branch** (Step 7 manual path, committed here instead of on `main`), after confirming the version and the commit. The PR then carries the bump into both `main` and the merge-back.
+For BehindTheMusicTree/agent-config, the canonical legacy version is `.claude-plugin/plugin.json`; run `scripts/check-release-version.py` as documented. Once a CI contract is adopted, use that contract and CI ownership instead of the legacy special case. Public publication, private dependency update/publication and local installation are separate operations; do not infer authorization for the latter steps from a procedure edit.
 
-**Any other gap** (wrong base, missing prefix, feature PR aimed at `main`, hotfix not merged back) → report it with the concrete fix (e.g. "retarget this PR at `develop`") and wait for confirmation. These touch branches that may already have PRs/reviewers.
+## Step 3 — Validate, synchronize and open the PR
 
-## Step 5 — Sync with `main`
+Run documented checks for the affected code and release data. Fetch main, merge its changes into the task branch if needed (do not rebase a shared branch), and refresh validation/review evidence after integration changes. Preserve both sides when resolving conflicts.
 
-```bash
-git fetch origin main
-git log HEAD..origin/main --oneline
-```
+Invoke `agent-config:create-pr --intent release --base origin/main` with the exact release range, source/target, review depth and reusable evidence. Reuse an existing matching PR. `agent-config:create-pr` owns coverage and final independent review.
 
-Non-empty → `git merge origin/main` (not rebase) and resolve conflicts before continuing.
+Use `version-bump` only for a separate mechanical preparation PR, never to classify an unreviewed release payload as light. Auto-merge follows the shared PR policy; pass `--no-auto-merge` when the session requires holding the merge. Do not publish before the delivery PR merges.
 
-## Step 6 — PR to `main`
+## Step 4 — Follow the merged release
 
-Invoke `agent-config:create-pr --intent release --base origin/main`, passing the resolved release content and prior evidence. It creates or updates the intended PR; reuse an existing matching source/target PR rather than opening a duplicate. Do not publish before it merges. Auto-merge follows the shared policy; pass `--no-auto-merge` to hold the merge for a manual decision. For Gitflow, record the required back-merge target now.
+Carry the same profile/evidence into `agent-config:create-pr-and-fix-ci` until the PR checks and mergeability are clean.
 
-## Step 6a — Merge (with `--auto`, equivalent session authorization, or once auto-merge from Step 6 completes)
+Resolve the actual merged commit from the PR and fetch main. Verify that commit is on main; record it as the intended release SHA even if a later push advances main. Check required after-merge validations on that exact SHA before publication when the project contract requires them.
 
-1. Run the CI/mergeability loop from `agent-config:create-pr-and-fix-ci` on the release PR, carrying its profile and evidence; then merge with the project's permitted strategy.
-2. Update local main with a fast-forward and complete Step 7 on the merged commit.
-3. Gitflow: invoke `agent-config:create-pr --intent back-merge --base origin/develop` from a dedicated integration branch based on the released source, as specified by the policy. Never merge develop into main to resolve it. Run the same CI/mergeability loop, merge the back-merge PR, then remove the release branch when authorized. Do not publish another release or bump another version for the back-merge.
+**CI-owned tag:** follow the declared main-push tag workflow for the exact merge SHA. Never run local tag/push or legacy publish/dispatch as a fallback. Read the contract's exact version/prefix and verify the remote tag's dereferenced commit. Existing tag on the intended SHA is a retry; the same name on another SHA is a collision and must fail without moving/deleting it. If activation or an ordinary push had no bump, expect no tag. Diagnose a missing tag from its run and configuration; do not invent a second bump.
 
-## Step 7 — Cut the release
+**Legacy-owned tag:** follow only the project's existing publication contract after the prepared version merges. Read the publication mode before running it; run only its publication phase, never another bump. If manual tagging is the documented owner, tag the exact merged commit with the existing prefix after validating the version/changelog and release authorization. Verify an existing tag by its dereferenced remote commit; reuse a matching tag and fail on a mismatch. For legacy agent-config, a validated manifest-version tag triggers `.github/workflows/release.yml`. No convention means report the missing contract rather than inventing one.
 
-If the release PR has not merged to `main`, stop after reporting the PR: do not tag or publish an unmerged commit. Once merged, fetch `origin/main` and verify the intended release commit is on it. If Step 4.5 already committed the version bump, do not bump again, but still ensure the release tag exists. Always check — regardless of flow — using Step 4.3's detection plus:
+## Step 5 — Verify publications and deployments
 
-```bash
-git tag -l | grep -vE -- '-(dev|rc|beta|alpha)\.' | sort -V | tail -5
-```
+Inspect workflow triggers, paths filters, branch/tag filters, job conditions and declared prerequisites. List the actual runs for the exact branch SHA and tag, and follow relevant runs to completion. A workflow excluded by its own filters is not missing. A missing run requires diagnosis of the event and configuration; do not assume GitHub lost the event or replay every push workflow.
 
-A `vX.Y.Z` convention with an untagged `main` HEAD is the gap to close.
+Verify the remote tag, expected GitHub Release and every required artifact/version against the contract. A GitHub Release's `target_commitish` is not proof of tag provenance. GitHub Release creation has one owner and must wait for required packages. Existing publisher workflow filenames, registry credentials and OIDC identities remain owned by the repository.
 
-**agent-config path:** For `BehindTheMusicTree/agent-config`, the canonical version is `.claude-plugin/plugin.json`. Once the version bump has merged to `main`, tag that main commit `vX.Y.Z` using the manifest version; validate it with `scripts/check-release-version.py`, then push the tag with the user's authorization. If the tag already exists, compare its dereferenced remote commit with the intended main commit and stop on a mismatch. The tag triggers `.github/workflows/release.yml`, which publishes the GitHub release after validation. Do not bump the already-merged version again or create a tag on a feature branch. After verifying the remote tag and commit, skip the tooling and manual paths and continue to Step 8.
+For partial publication, follow its declared recovery path: verify each package/version already published, then rerun the existing tag publisher or explicitly documented recovery entry point. For coordinated packages, skip only an artifact proven already published and correct. Network/auth/API errors never mean absent or successful. Never create a replacement tag, a second bump or an arbitrary dispatch. Distinguish publication complete from deployment complete; follow a production deployment only when it is declared and authorized by the requested release.
 
-**Tooling path:**
-1. Read it first: required state (clean tree, on `main`, pulled), version argument format (`patch`/`minor`/`major` vs `x.y.z`), and exactly what it does (changelog, version bump, deleting pre-release tags, commit, tag, push).
-2. CI-only → trigger it (tag, PR merge, `gh workflow run`) and say so.
-3. Local → on `main`, synced with `origin/main`, clean tree.
-4. Version: from `$ARGUMENTS`, else propose a bump from what merged (breaking → major, or minor while below `1.0.0` per SemVer §4 — a `feat!:` never jumps `0.x` to `1.0.0`; feature → minor; fix → patch).
-5. **Confirm before running**: state exactly what will be committed, tagged, pushed, and deleted. A version number in `$ARGUMENTS` is not authorization to push.
-6. Verify: `git log origin/main --oneline -1` and `git ls-remote --tags origin | grep vX.Y.Z`.
+## Step 6 — Integrate and synchronize
 
-**Manual path** (no tooling, but existing version tags, a versioned `CHANGELOG.md`, or a version field in `VERSION`/`package.json`/`pyproject.toml`/`.claude-plugin/plugin.json`):
-1. Next version = highest current version bumped according to what merged (Step 7.4's rule); confirm it with the user.
-2. If `CHANGELOG.md` exists, rename `Unreleased`/`Unpublished` to `x.y.z — <today>` using the file's heading format, and add a fresh empty `Unreleased` above it. First rewrite any entry that is a raw commit message, a PR title, a bare ticket ID, or a vague word ("fixes") into one plain-language line; keep existing categories. Too ambiguous → ask.
-3. Bump the version file.
-4. Commit (`chore: release x.y.z`, matching repo style), tag with the existing prefix, push both — same confirmation gate as the tooling path.
-5. Verify as above.
+For Gitflow, invoke `agent-config:create-pr --intent back-merge --base origin/develop` from a dedicated integration branch based on the released source, following the PR policy.
 
-**No convention at all** (no tags, no versioned changelog, no version field) → say "no release convention found — the merged PR is the release". Don't invent a versioning scheme.
+Merge the target into that integration branch, preserve both sides, run the CI/mergeability loop and merge the back-merge PR. Never merge develop into protected main to resolve it, and never create another version or release for a back-merge. If already integrated, no PR is needed.
 
-## Step 8 — Confirm `main` workflows fired
+For an explicitly requested agent-config release/synchronization, use the configured local profile and published public/private pair. A private profile keeps its pinned public release until its dependency update and private publication are separately authorized and complete. Retry synchronization after publication is verified; report installed versions and pending steps separately.
 
-GitHub occasionally drops the push event for a merge (no `PushEvent`, so no run at all), silently skipping deploy-on-push. After the PR to `main` merges (and after any tag push):
+## Output
 
-```bash
-gh run list --commit "$(git rev-parse origin/main)" --limit 20 --json workflowName,event,status,conclusion
-```
-
-Every workflow in `.github/workflows/` whose `push` trigger covers `main` should have a run for that SHA. Missing after ~5 min → `gh workflow run <file> --ref main` if it has `workflow_dispatch`, else report it. Watch deploy runs to completion (`gh run watch <id>`); a release whose deploy didn't run isn't shipped.
-
-## Step 9 — Synchronize agent-config locally
-
-When releasing an agent-config source, use the configured local profile to synchronize its published release. A private profile pins a public release: publishing a new public version alone does not change that profile until its private dependency is updated and published. Report publication and local synchronization separately. If publication is pending, verify its status and retry synchronization after it is published.
-
-## Output format
-
-1. **Flow** and the signal that decided it
-2. **Branch** — name, base, ahead/behind
-3. **Gaps** (Step 4) — fixed or still needed
-4. **PR URL**, or what blocks it
-5. **Release** (Step 7) — tooling found or not; tag produced, or what's still needed
-6. **Workflows on `main`** (Step 8) — ran / dispatched manually / missing
-7. **Local synchronization** (Step 9) — installed version or pending/failure, when applicable
+Report the branch model and its evidence, intended release SHA/version, PR URL and merge state, tag ownership and verified dereferenced commit, required publication/deployment results, back-merge and local synchronization where applicable. State failures and remaining prerequisites precisely; do not report an unverified publication as complete.
