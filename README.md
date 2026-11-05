@@ -51,3 +51,13 @@ Use `$handoff` in Codex or `/agent-config:handoff [focus]` in Claude to write a 
 ## Release ownership
 
 The release workflow detects a repository's `.github/release-policy.json` before running mutating tools. Adopted repositories delegate tag creation to CI; project tools prepare version, mirrors and changelog in a PR, then the agent verifies the exact merged SHA and required publications. Repositories without the contract keep their documented legacy publication owner. See [release ownership and recovery](references/release-contract.md). Editing these procedures does not itself authorize a release, plugin version bump or local reinstall.
+
+The public plugin itself uses `.github/release-policy.json`: `.claude-plugin/plugin.json`
+is canonical, and `CHANGELOG.md` supplies versioned notes. Prepare both in a PR to `main`.
+The shared workflow pinned in `release-tag.yml` owns tags after approved version bumps;
+ordinary pushes and initial activation never create a tag. Provision the release App
+variable/secret and immutable tag protections through `github-config` before the first bump.
+The existing `release.yml` validates the tag's version, commit ancestry and repository before
+creating its GitHub Release. Rerun a failed tag run to resume: an existing published stable
+release is accepted; API errors, drafts and prereleases fail explicitly. Never recreate or
+move a tag for recovery. Plugin publication and local installation remain separate actions.
