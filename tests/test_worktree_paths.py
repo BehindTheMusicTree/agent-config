@@ -8,7 +8,10 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 
 
 def run(*args, cwd, env=None):
-    return subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, check=True).stdout
+    result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError(f'{args}: {result.stdout}\n{result.stderr}')
+    return result.stdout
 
 
 class WorktreePathsTests(unittest.TestCase):
@@ -29,6 +32,23 @@ class WorktreePathsTests(unittest.TestCase):
             output = run(script, 'codex', 'feature/one', 'main', cwd=root)
             self.assertIn('status=blocked reason=worktree-path-exists', output)
             self.assertFalse((root / '.gitignore').exists())
+
+    def test_github_flow_documentation_does_not_imply_gitflow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run('git', 'init', '-q', '-b', 'main', cwd=root)
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-q', '--allow-empty', '-m', 'initial', cwd=root)
+            run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+            (root / 'CONTRIBUTING.md').write_text('GitHub Flow: No develop or long-lived release branches.\n')
+            output = run(str(SCRIPTS / 'detect-branch-model.sh'), cwd=root)
+            self.assertEqual(output, 'flow=github\ntrunk=main\n')
+            output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'feature/test', cwd=root)
+            self.assertIn('flow=github\ntrunk=main\n', output)
+            self.assertIn('status=ok', output)
+            run('git', 'update-ref', 'refs/remotes/origin/develop', 'HEAD', cwd=root)
+            self.assertEqual(run(str(SCRIPTS / 'detect-branch-model.sh'), cwd=root),
+                             'flow=gitflow\ntrunk=develop\n')
 
     def test_cleanup_scans_both_locations_and_skips_shared_projects(self):
         with tempfile.TemporaryDirectory() as directory:

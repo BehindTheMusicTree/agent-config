@@ -31,16 +31,9 @@ if [[ -n "$base_ref" ]]; then
   trunk="$base_ref"
   flow="explicit"
 else
-  trunk="main"
-  git show-ref --verify --quiet refs/remotes/origin/master && trunk="master"
-  flow="github"
-  if git show-ref --verify --quiet refs/remotes/origin/develop \
-     || git config --get-regexp '^gitflow\.' >/dev/null 2>&1 \
-     || grep -riqE 'gitflow|git flow|release branch|hotfix branch' CONTRIBUTING.md CLAUDE.md AGENTS.md README.md 2>/dev/null \
-     || git branch -a --format='%(refname:short)' | grep -qE '(release|hotfix)/'; then
-    flow="gitflow"
-    trunk="develop"
-  fi
+  flow="" trunk=""
+  detection="$("$(dirname "${BASH_SOURCE[0]}")/detect-branch-model.sh")" || exit 1
+  eval "$detection"
 fi
 echo "flow=$flow"
 echo "trunk=$trunk"
