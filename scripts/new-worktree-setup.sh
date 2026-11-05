@@ -18,6 +18,7 @@ case "$client" in codex|claude) ;; *) echo "status=blocked reason=invalid-client
 branch="${2:?branch name required}"
 base_ref="${3:-}"
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 repo_root="$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
 if [[ -z "$repo_root" ]]; then
   echo "status=blocked reason=not-a-git-repo"
@@ -32,7 +33,7 @@ if [[ -n "$base_ref" ]]; then
   flow="explicit"
 else
   flow="" trunk=""
-  detection="$("$(dirname "${BASH_SOURCE[0]}")/detect-branch-model.sh")" || exit 1
+  detection="$("$script_dir/detect-branch-model.sh")" || exit 1
   eval "$detection"
 fi
 echo "flow=$flow"

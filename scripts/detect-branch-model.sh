@@ -9,7 +9,6 @@ git show-ref --verify --quiet refs/remotes/origin/master && trunk="master"
 flow="github"
 if git show-ref --verify --quiet refs/remotes/origin/develop \
    || git config --get-regexp '^gitflow\.' >/dev/null 2>&1 \
-   || grep -riqE 'gitflow|git flow' CONTRIBUTING.md CLAUDE.md AGENTS.md README.md 2>/dev/null \
    || git branch -a --format='%(refname:short)' | grep -qE '(release|hotfix)/'; then
   flow="gitflow"
   trunk="develop"

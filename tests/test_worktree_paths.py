@@ -41,10 +41,15 @@ class WorktreePathsTests(unittest.TestCase):
                 'commit', '-q', '--allow-empty', '-m', 'initial', cwd=root)
             run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
             (root / 'CONTRIBUTING.md').write_text('GitHub Flow: No develop or long-lived release branches.\n')
+            (root / 'AGENTS.md').write_text('Detect strict Gitflow vs GitHub flow.\n')
             output = run(str(SCRIPTS / 'detect-branch-model.sh'), cwd=root)
             self.assertEqual(output, 'flow=github\ntrunk=main\n')
             output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'feature/test', cwd=root)
             self.assertIn('flow=github\ntrunk=main\n', output)
+            self.assertIn('status=ok', output)
+            linked = root / '.codex/worktrees/feature-test'
+            relative_script = os.path.relpath(SCRIPTS / 'new-worktree-setup.sh', linked.resolve())
+            output = run(relative_script, 'claude', 'feature/relative', cwd=linked)
             self.assertIn('status=ok', output)
             run('git', 'update-ref', 'refs/remotes/origin/develop', 'HEAD', cwd=root)
             self.assertEqual(run(str(SCRIPTS / 'detect-branch-model.sh'), cwd=root),
