@@ -34,6 +34,14 @@ class PublishReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.release_notes('## [2.3.0]\nA', 'v2.3.0-rc.1')
 
+    def test_fenced_examples_do_not_select_or_truncate_notes(self):
+        for marker in ('```', '~~~'):
+            notes = f'- Real\n{marker}markdown\n## [2.3.0]\nexample\n{marker} trailing\n## still code\n{marker}\n- End'
+            text = f'{marker}markdown\n## [2.3.0]\nexample\n{marker}\n## [2.3.0]\n{notes}\n## [2.2.0]\nOld'
+            self.assertEqual(module.release_notes(text, TAG), notes)
+        with self.assertRaises(ValueError):
+            module.release_notes('## [2.3.0]\n<!-- draft -->', TAG)
+
     def test_create_then_retry_without_duplicate(self):
         api = FakeAPI([module.APIError(404), RELEASE])
         self.assertEqual(module.publish(api, TAG, COMMIT, 'Notes'), 'created')

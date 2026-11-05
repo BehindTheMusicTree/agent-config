@@ -45,12 +45,24 @@ def release_notes(changelog, tag):
     if not re.fullmatch(r'v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', tag):
         raise ValueError('Expected a stable vX.Y.Z tag')
     lines = changelog.splitlines()
-    starts = [i for i, line in enumerate(lines) if re.fullmatch(r'## \[' + re.escape(tag[1:]) + r'\](?: - \d{4}-\d{2}-\d{2})?', line)]
+    headings = []
+    fence = None
+    for index, line in enumerate(lines):
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line)
+        if marker:
+            run, tail = marker.groups()
+            if fence is None:
+                fence = run
+            elif run[0] == fence[0] and len(run) >= len(fence) and not tail.strip():
+                fence = None
+        elif fence is None and line.startswith('## '):
+            headings.append(index)
+    starts = [i for i in headings if re.fullmatch(r'## \[' + re.escape(tag[1:]) + r'\](?: - \d{4}-\d{2}-\d{2})?', lines[i])]
     if len(starts) != 1:
         raise ValueError('Expected one version changelog section')
-    end = next((i for i in range(starts[0] + 1, len(lines)) if lines[i].startswith('## ')), len(lines))
+    end = next((i for i in headings if i > starts[0]), len(lines))
     body = '\n'.join(lines[starts[0] + 1:end]).strip()
-    if not re.sub(r'^#{1,6}\s.*$', '', body, flags=re.MULTILINE).strip():
+    if not re.sub(r'^#{1,6}\s.*$', '', re.sub(r'<!--.*?-->', '', body, flags=re.DOTALL), flags=re.MULTILINE).strip():
         raise ValueError('Version changelog section is empty')
     return body
 
