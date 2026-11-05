@@ -47,3 +47,7 @@ Use `$review` in Codex or `/agent-config:review` in Claude to review a branch, c
 ## Session handoff
 
 Use `$handoff` in Codex or `/agent-config:handoff [focus]` in Claude to write a recap of at most about 30 lines: a freshness header (date, repository, branch, HEAD), a reminder to re-verify state, concise context, detailed remaining steps, state, a terse done list, and pointers. State claims are verified with read-only git/gh before they are written, and secret values are never included. The recap is saved to `agent-handoff-<branch>.md` in the repository's common git directory (one file per branch, so parallel worktrees do not overwrite each other; never in `git status`, survives worktree removal). Only the file path is printed, so the recap is not generated twice: `/clear`, then reference it with `@<path>` in Claude or ask a new Codex session to read it. When no file can be written (outside a git repository or after a failed write), the recap is printed instead.
+
+## Release ownership
+
+The release workflow detects a repository's `.github/release-policy.json` before running mutating tools. Adopted repositories delegate tag creation to CI; project tools prepare version, mirrors and changelog in a PR, then the agent verifies the exact merged SHA and required publications. Repositories without the contract keep their documented legacy publication owner. See [release ownership and recovery](references/release-contract.md). Editing these procedures does not itself authorize a release, plugin version bump or local reinstall.
