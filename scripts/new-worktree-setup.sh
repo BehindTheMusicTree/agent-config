@@ -18,6 +18,7 @@ case "$client" in codex|claude) ;; *) echo "status=blocked reason=invalid-client
 branch="${2:?branch name required}"
 base_ref="${3:-}"
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 repo_root="$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
 if [[ -z "$repo_root" ]]; then
   echo "status=blocked reason=not-a-git-repo"
@@ -31,16 +32,9 @@ if [[ -n "$base_ref" ]]; then
   trunk="$base_ref"
   flow="explicit"
 else
-  trunk="main"
-  git show-ref --verify --quiet refs/remotes/origin/master && trunk="master"
-  flow="github"
-  if git show-ref --verify --quiet refs/remotes/origin/develop \
-     || git config --get-regexp '^gitflow\.' >/dev/null 2>&1 \
-     || grep -riqE 'gitflow|git flow|release branch|hotfix branch' CONTRIBUTING.md CLAUDE.md AGENTS.md README.md 2>/dev/null \
-     || git branch -a --format='%(refname:short)' | grep -qE '(release|hotfix)/'; then
-    flow="gitflow"
-    trunk="develop"
-  fi
+  flow="" trunk=""
+  detection="$("$script_dir/detect-branch-model.sh")" || exit 1
+  eval "$detection"
 fi
 echo "flow=$flow"
 echo "trunk=$trunk"
