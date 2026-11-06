@@ -43,8 +43,10 @@ def collect(root, base, limit, validation_logs, intent='change', depth='auto'):
     root = Path(git(root, 'rev-parse', '--show-toplevel').strip())
     result = subprocess.run(
         ['bash', str(Path(__file__).with_name('detect-branch-model.sh'))], cwd=root,
-        capture_output=True, text=True, check=True, timeout=60,
+        capture_output=True, text=True, check=False, timeout=60,
     )
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or 'Branch model detection failed')
     detected = dict(line.split('=', 1) for line in result.stdout.splitlines())
     flow = detected['flow']
     if base is None:

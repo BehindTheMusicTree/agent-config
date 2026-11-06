@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Choose the correct worktree base when stale release or hotfix branches exist.
+
 ## [2.4.0] - 2026-11-06
 
 ### Changed

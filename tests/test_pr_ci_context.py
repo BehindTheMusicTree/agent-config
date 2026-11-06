@@ -34,6 +34,7 @@ class PrContextTests(unittest.TestCase):
         self.git('add', '.')
         self.git('commit', '-qm', 'initial')
         self.git('branch', 'base')
+        self.git('update-ref', 'refs/remotes/origin/main', 'main')
         self.git('switch', '-qc', 'feature')
 
     def git(self, *args):

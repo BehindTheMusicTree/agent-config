@@ -40,12 +40,15 @@ class WorktreePathsTests(unittest.TestCase):
             run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
                 'commit', '-q', '--allow-empty', '-m', 'initial', cwd=root)
             run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+            run('git', 'branch', 'release/0.13.0', cwd=root)
+            run('git', 'update-ref', 'refs/remotes/origin/hotfix/old', 'HEAD', cwd=root)
             (root / 'CONTRIBUTING.md').write_text('GitHub Flow: No develop or long-lived release branches.\n')
             (root / 'AGENTS.md').write_text('Detect strict Gitflow vs GitHub flow.\n')
             output = run(str(SCRIPTS / 'detect-branch-model.sh'), cwd=root)
             self.assertEqual(output, 'flow=github\ntrunk=main\n')
             output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'feature/test', cwd=root)
             self.assertIn('flow=github\ntrunk=main\n', output)
+            self.assertIn('base_ref=origin/main\n', output)
             self.assertIn('status=ok', output)
             linked = root / '.codex/worktrees/feature-test'
             relative_script = os.path.relpath(SCRIPTS / 'new-worktree-setup.sh', linked.resolve())
@@ -54,6 +57,43 @@ class WorktreePathsTests(unittest.TestCase):
             run('git', 'update-ref', 'refs/remotes/origin/develop', 'HEAD', cwd=root)
             self.assertEqual(run(str(SCRIPTS / 'detect-branch-model.sh'), cwd=root),
                              'flow=gitflow\ntrunk=develop\n')
+
+    def test_branch_detection_default_and_conflicts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run('git', 'init', '-q', '-b', 'main', cwd=root)
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-q', '--allow-empty', '-m', 'initial', cwd=root)
+            detector = str(SCRIPTS / 'detect-branch-model.sh')
+            run('git', 'update-ref', 'refs/remotes/origin/main', 'HEAD', cwd=root)
+            run('git', 'update-ref', 'refs/remotes/origin/master', 'HEAD', cwd=root)
+            result = subprocess.run([detector], cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('both exist', result.stderr)
+            run('git', 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main', cwd=root)
+            self.assertEqual(run(detector, cwd=root), 'flow=github\ntrunk=main\n')
+            run('git', 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/master', cwd=root)
+            self.assertEqual(run(detector, cwd=root), 'flow=github\ntrunk=master\n')
+            run('git', 'config', 'gitflow.branch.develop', 'develop', cwd=root)
+            result = subprocess.run([detector], cwd=root, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('origin/develop is missing', result.stderr)
+            run('git', 'update-ref', 'refs/remotes/origin/develop', 'HEAD', cwd=root)
+            self.assertEqual(run(detector, cwd=root), 'flow=gitflow\ntrunk=develop\n')
+
+    def test_default_branch_name_is_not_executed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run('git', 'init', '-q', '-b', 'main', cwd=root)
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-q', '--allow-empty', '-m', 'initial', cwd=root)
+            branch = 'main;touch${IFS}INJECTED'
+            run('git', 'update-ref', f'refs/remotes/origin/{branch}', 'HEAD', cwd=root)
+            run('git', 'symbolic-ref', 'refs/remotes/origin/HEAD', f'refs/remotes/origin/{branch}', cwd=root)
+            output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'feature/safe', cwd=root)
+            self.assertIn(f'base_ref=origin/{branch}\n', output)
+            self.assertIn('status=ok', output)
+            self.assertFalse((root / 'INJECTED').exists())
 
     def test_install_tool_detection_from_lockfiles(self):
         cases = [

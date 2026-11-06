@@ -31,8 +31,13 @@ shift
 case "$cmd" in
   precheck)
     flow="" trunk=""
-    detection="$("$(dirname "${BASH_SOURCE[0]}")/detect-branch-model.sh")" || exit 1
-    eval "$detection"
+    detection="$("$(dirname "${BASH_SOURCE[0]}")/detect-branch-model.sh")" || { echo "status=blocked reason=branch-model-detection-failed"; exit 0; }
+    while IFS='=' read -r key value; do
+      case "$key" in
+        flow) flow=$value ;;
+        trunk) trunk=$value ;;
+      esac
+    done <<< "$detection"
     echo "flow=$flow"
     echo "trunk=$trunk"
 

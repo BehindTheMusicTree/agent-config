@@ -1,18 +1,38 @@
 #!/usr/bin/env bash
-# Detects whether this repo follows strict Gitflow or GitHub flow, and its trunk branch.
-# Prints `flow=gitflow|github` and `trunk=<branch>`.
+# Prints flow and trunk based on existing remote integration branches.
 set -euo pipefail
 
-trunk="main"
-git show-ref --verify --quiet refs/remotes/origin/master && trunk="master"
-
-flow="github"
-if git show-ref --verify --quiet refs/remotes/origin/develop \
-   || git config --get-regexp '^gitflow\.' >/dev/null 2>&1 \
-   || git branch -a --format='%(refname:short)' | grep -qE '(release|hotfix)/'; then
-  flow="gitflow"
-  trunk="develop"
+if git show-ref --verify --quiet refs/remotes/origin/develop; then
+  printf 'flow=gitflow\ntrunk=develop\n'
+  exit 0
 fi
 
-echo "flow=$flow"
-echo "trunk=$trunk"
+if git config --get-regexp '^gitflow\.' >/dev/null 2>&1; then
+  echo 'branch model: Gitflow configuration exists but origin/develop is missing' >&2
+  exit 1
+fi
+
+head_ref=$(git symbolic-ref -q refs/remotes/origin/HEAD || true)
+if [[ -n "$head_ref" ]]; then
+  if [[ "$head_ref" != refs/remotes/origin/* ]] || ! git show-ref --verify --quiet "$head_ref"; then
+    echo 'branch model: origin/HEAD does not identify an existing remote branch' >&2
+    exit 1
+  fi
+  trunk=${head_ref#refs/remotes/origin/}
+else
+  trunk=''
+  for candidate in main master; do
+    if git show-ref --verify --quiet "refs/remotes/origin/$candidate"; then
+      if [[ -n "$trunk" ]]; then
+        echo 'branch model: origin/HEAD is missing and main and master both exist' >&2
+        exit 1
+      fi
+      trunk=$candidate
+    fi
+  done
+  if [[ -z "$trunk" ]]; then
+    echo 'branch model: no remote default branch found' >&2
+    exit 1
+  fi
+fi
+printf 'flow=github\ntrunk=%s\n' "$trunk"
