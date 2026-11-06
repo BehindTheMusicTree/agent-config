@@ -155,8 +155,10 @@ elif [[ -f yarn.lock ]]; then
   install_tool="yarn"; yarn install >>"$install_log" 2>&1 && install_status="ok" || install_status="fail"
 elif [[ -f package-lock.json ]]; then
   install_tool="npm"; npm install >>"$install_log" 2>&1 && install_status="ok" || install_status="fail"
-elif [[ -f bun.lockb ]]; then
+elif [[ -f bun.lock || -f bun.lockb ]]; then
   install_tool="bun"; bun install >>"$install_log" 2>&1 && install_status="ok" || install_status="fail"
+elif [[ -f uv.lock ]]; then
+  install_tool="uv"; uv sync >>"$install_log" 2>&1 && install_status="ok" || install_status="fail"
 elif [[ -f poetry.lock ]]; then
   install_tool="poetry"; poetry install >>"$install_log" 2>&1 && install_status="ok" || install_status="fail"
 elif [[ -f Pipfile.lock ]]; then

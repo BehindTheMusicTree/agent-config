@@ -55,6 +55,36 @@ class WorktreePathsTests(unittest.TestCase):
             self.assertEqual(run(str(SCRIPTS / 'detect-branch-model.sh'), cwd=root),
                              'flow=gitflow\ntrunk=develop\n')
 
+    def test_install_tool_detection_from_lockfiles(self):
+        cases = [
+            ({'uv.lock': '', 'pyproject.toml': '[project]\nname = "x"\n'}, 'uv', 'uv sync', 0),
+            ({'uv.lock': '', 'pyproject.toml': '[project]\nname = "x"\n'}, 'uv', 'uv sync', 1),
+            ({'bun.lock': '{}'}, 'bun', 'bun install', 0),
+        ]
+        for files, tool, command, code in cases:
+            with self.subTest(tool=tool, code=code), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / 'repo'
+                stubs = Path(directory) / 'bin'
+                root.mkdir()
+                stubs.mkdir()
+                calls = Path(directory) / 'calls'
+                stub = stubs / tool
+                stub.write_text(f'#!/bin/sh\necho "{tool} $*" >> "{calls}"\nexit {code}\n')
+                stub.chmod(0o755)
+                for name, content in files.items():
+                    (root / name).write_text(content)
+                run('git', 'init', '-q', '-b', 'main', cwd=root)
+                run('git', 'add', '.', cwd=root)
+                run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                    'commit', '-q', '-m', 'initial', cwd=root)
+                env = {**os.environ, 'PATH': f'{stubs}:{os.environ["PATH"]}'}
+                output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'feature/x', 'main',
+                             cwd=root, env=env)
+                status = 'fail' if code else 'ok'
+                self.assertIn(f'install_tool={tool}\ninstall_status={status}\n', output)
+                self.assertEqual(calls.read_text(), f'{command}\n')
+                self.assertFalse((root / '.codex/worktrees/feature-x/.venv').exists())
+
     def test_cleanup_scans_both_locations_and_skips_shared_projects(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'repo'
