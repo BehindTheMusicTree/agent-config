@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-11-06
+
 ### Fixed
 
 - Choose the correct worktree base when stale release or hotfix branches exist.
