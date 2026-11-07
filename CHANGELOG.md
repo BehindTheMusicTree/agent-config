@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Run the Claude `release` and `update-skill` workflows on the session model instead of forcing Opus or Sonnet, avoiding a model switch that discards the prompt cache.
+
 ## [2.4.1] - 2026-11-06
 
 ### Fixed

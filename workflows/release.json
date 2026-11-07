@@ -11,10 +11,6 @@
       "shared": "description: Detect the project's branching model (strict Gitflow vs GitHub flow), verify the current branch follows it, and drive the release forward to a PR against main.\n"
     },
     {
-      "claude": "model: opus\n",
-      "codex": ""
-    },
-    {
       "shared": "---\n"
     },
     {

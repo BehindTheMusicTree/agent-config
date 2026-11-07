@@ -4,7 +4,7 @@
       "shared": "---\n"
     },
     {
-      "claude": "description: Create or update shared Claude commands, Codex skills, and global agent instructions in agent-config.\nmodel: sonnet\n",
+      "claude": "description: Create or update shared Claude commands, Codex skills, and global agent instructions in agent-config.\n",
       "codex": "name: update-skill\ndescription: Create or update a shared Claude command and its Codex skill in the source configuration repository.\n"
     },
     {
