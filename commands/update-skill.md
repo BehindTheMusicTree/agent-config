@@ -1,6 +1,5 @@
 ---
 description: Create or update shared Claude commands, Codex skills, and global agent instructions in agent-config.
-model: sonnet
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/update-skill.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.

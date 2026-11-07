@@ -1,6 +1,5 @@
 ---
 description: Detect the project's branching model (strict Gitflow vs GitHub flow), verify the current branch follows it, and drive the release forward to a PR against main.
-model: opus
 ---
 
 If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/release.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
