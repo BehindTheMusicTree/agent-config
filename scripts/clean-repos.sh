@@ -125,7 +125,10 @@ worktree_branch_is_new_empty() {
 # processes of .../feature-ab (and "." matches any character). Match literally
 # and require the path to end at a boundary instead.
 worktree_pids() {
-  ps -axo pid=,command= | awk -v p="$1" -v self="$$" -v parent="$PPID" -v q="'" '
+  # The path travels in the environment, not argv, so awk's own command line
+  # (which ps lists) cannot match it; -v would also mangle backslash escapes.
+  ps -axo pid=,command= | WT_PATH="$1" awk -v self="$$" -v parent="$PPID" -v q="'" '
+    BEGIN { p = ENVIRON["WT_PATH"] }
     $1 == self || $1 == parent { next }
     {
       line = $0

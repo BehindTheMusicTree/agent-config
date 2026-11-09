@@ -112,7 +112,7 @@ class CleanReposTests(unittest.TestCase):
         sibling_proc = self.start_process(sibling)
 
         scan = self.run_script('scan')
-        self.assertIn(f'running-processes (will be killed on apply): {target}: {target_proc.pid}', scan)
+        self.assertIn(f'running-processes (will be killed on apply): {target}: {target_proc.pid} \n', scan)
         self.assertNotIn(str(sibling_proc.pid), scan)
 
         output = self.run_script('apply')
@@ -121,6 +121,13 @@ class CleanReposTests(unittest.TestCase):
         self.assertIsNotNone(target_proc.wait(timeout=10))
         self.assertIsNone(sibling_proc.poll())
         self.assertTrue(sibling.exists())
+
+    def test_reports_no_processes_for_an_idle_worktree(self):
+        self.add_worktree('feature/a', merged=True)
+        scan = self.run_script('scan')
+        self.assertIn('worktrees:', scan)
+        self.assertNotIn('running-processes', scan)
+        self.assertNotIn('killed-processes', self.run_script('apply'))
 
     def test_deletes_merged_remote_branch_when_open_prs_are_known(self):
         self.add_worktree('feature/a', merged=True)
