@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `clean-repos` no longer kills processes of a different worktree whose path merely starts with the cleaned one (`feature-a` vs `feature-ab`); process matching is now literal and boundary-anchored
+- `clean-repos` skips remote deletion for a repo when `gh` cannot list open PRs, instead of treating the failure as "no open PRs"
+- `clean-repos` skill text now matches the script: verified/unverified squash-merged branches, `-D` after an ancestry or content check, `worktrees-new-empty`, and every skip reason
+
+### Changed
+
+- `clean-repos scan` reports each dirty worktree with its tracked and untracked counts, listing untracked files and flagging deletions-only changes
+
 ## [2.4.2] - 2026-11-07
 
 ### Changed
