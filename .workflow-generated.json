@@ -1,5 +1,5 @@
 {
-  "commands/clean-repos.md": "0d5b44ed809ffca33d813a9d68d91efde4d8e34e4e2b3d79d0328890cc76281b",
+  "commands/clean-repos.md": "4543aa09b38780e0928c2d03981501f6b64fe5fbf4aef19c8267c4a32c86f649",
   "commands/cleanup-session.md": "4560c4cfa898b84df5a41ceb391667116bf6bb656b5a8a7c7907dfcce6235990",
   "commands/create-pr-and-fix-ci.md": "ca1b313fd495d31800f11345b437b5e2afb9599cfa21f9d96b2eb335a9ca3dbd",
   "commands/create-pr.md": "f00ccbe92a8b2ef8211effac63754dd1cccedbe20c12b76ff1dae478903a7fab",
@@ -10,7 +10,7 @@
   "commands/release.md": "15ba47f86d455f43a18215b812d41097ffad3b3b4886890b0e62966bbf3895da",
   "commands/review.md": "7118ef7fd326044386dc5b34d622ccc210f65eb9dd5d2f24faaaf72b2e039b5e",
   "commands/update-skill.md": "f1689d3524f7c98b11be08370fcc5e4dd4faa4fbfa310a08acf50459dab5eae8",
-  "skills/clean-repos/SKILL.md": "7a1ba1783df3411627a95d0415a14caf37ae1e9d5ce3d887706e140e608dba65",
+  "skills/clean-repos/SKILL.md": "dee7d5e58e81e8c2964bc988355f1ec44c5ab0a6e58912980f9edbe890339443",
   "skills/cleanup-session/SKILL.md": "5f3bc112cb0ba363d597ee7816f06b4ac0ad8cc972a24b66d088347e9810ba55",
   "skills/create-pr-and-fix-ci/SKILL.md": "4d1d58e98c2320e75e303ace6e1f23feda6bf33dc660c9d4798ad5512749432c",
   "skills/create-pr/SKILL.md": "d59b08080f5548511d5f6241f9ec67828cbccff45707d862ac2aa26d99ec8f86",

@@ -19,9 +19,13 @@ Optional scope: **user-provided arguments** — e.g. "only <repo>", "exclude <re
 "$SKILL_REPO_ROOT/scripts/clean-repos.sh" scan "$HOME/git" [flags] > /tmp/clean-repos-scan.txt 2>&1; echo "exit:$?" >> /tmp/clean-repos-scan.txt
 ```
 
-Prints one block per repo with candidates (clean repos are silent), then a `summary:` line. Two special candidate types:
-- `local-squash-merged:` — merged per `gh`, but not a git ancestor of trunk. `apply` always skips these (`-d` can't delete them). The user can `git branch -D` them after checking the PR landed.
-- `dirty-worktrees:` — branch looks merged but the worktree has uncommitted edits. Excluded from deletion; that diff is the only copy of the work.
+Prints one block per repo with candidates (clean repos are silent), then a `summary:` line. Besides plain `local:` and `remote:` branches and `worktrees:`, these candidate types need attention:
+- `local-squash-merged-verified:` — merged per `gh`, and the branch's content is confirmed on trunk. `apply` deletes these with `git branch -D`.
+- `local-squash-merged-unverified:` — merged per `gh`, but the branch's own patch differs from the merge commit. `apply` always skips these; the user can `git branch -D` them after checking the PR landed.
+- `dirty-worktree:` — branch looks merged but the worktree has uncommitted edits, summarized as tracked/untracked counts (untracked files listed). Excluded from deletion; that diff is the only copy of the work. Never discard it without the user's explicit say-so.
+- `worktrees-new-empty:` — branch created but never committed to. Excluded from deletion.
+- `running-processes:` — processes started from a worktree that `apply` will kill before removing it.
+- `open-prs-unknown` — `gh` could not list open PRs, so remote deletion is skipped for that repo (deleting a PR's branch closes it).
 
 ## Step 2 — Confirm
 
@@ -33,7 +37,7 @@ Show the candidates grouped by repo and wait for explicit confirmation. Remote d
 "$SKILL_REPO_ROOT/scripts/clean-repos.sh" apply "$HOME/git" [same flags] > /tmp/clean-repos-apply.txt 2>&1; echo "exit:$?" >> /tmp/clean-repos-apply.txt
 ```
 
-`apply` re-derives candidates fresh (new fetch, new merge check), removes worktrees before their branch, and never force-deletes. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, or `uncommitted-changes` — relay them, don't override.
+`apply` re-derives candidates fresh (new fetch, new merge check) and removes worktrees before their branch. It uses `git branch -D` only after confirming the branch is an ancestor of `origin/<trunk>` or that its content is already on trunk. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`, `delete-failed`, `push-delete-failed` or `open-prs-unknown` — relay them, don't override.
 
 ## Output format
 

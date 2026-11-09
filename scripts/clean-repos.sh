@@ -120,6 +120,54 @@ worktree_branch_is_new_empty() {
   [[ "$(wc -l <<<"$reflog" | tr -d ' ')" == "1" ]] && grep -q 'branch: Created from' <<<"$reflog"
 }
 
+# PIDs whose command line mentions exactly this worktree path. `pgrep -f` treats
+# the path as an unanchored regex, so cleaning .../feature-a would also match
+# processes of .../feature-ab (and "." matches any character). Match literally
+# and require the path to end at a boundary instead.
+worktree_pids() {
+  ps -axo pid=,command= | awk -v p="$1" -v self="$$" -v parent="$PPID" -v q="'" '
+    $1 == self || $1 == parent { next }
+    {
+      line = $0
+      sub(/^ *[0-9]+ +/, "", line)
+      offset = 0
+      while ((i = index(line, p)) > 0) {
+        before = (offset + i == 1) ? "" : substr(line, i - 1, 1)
+        after = substr(line, i + length(p), 1)
+        if ((before == "" || index(" =:\"" q, before) > 0) && (after == "" || index("/ \t\"" q, after) > 0)) { print $1; next }
+        line = substr(line, i + 1)
+        offset += i
+      }
+    }'
+}
+
+# One-line description of a worktree's uncommitted state, so the user can tell
+# throwaway edits (tracked deletions of build output) from real work (new files).
+worktree_dirty_summary() {
+  local path="$1" line tracked=0 deletions=0 untracked=0 shown=0 listed="" summary
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    if [[ "${line:0:2}" == "??" ]]; then
+      untracked=$((untracked + 1))
+      if [[ $shown -lt 5 ]]; then
+        listed+="${listed:+, }${line:3}"
+        shown=$((shown + 1))
+      fi
+    else
+      tracked=$((tracked + 1))
+      [[ "${line:0:2}" == *D* ]] && deletions=$((deletions + 1))
+    fi
+  done < <(git -C "$path" status --porcelain 2>/dev/null)
+  summary="tracked=$tracked"
+  [[ $tracked -gt 0 && $deletions -eq $tracked ]] && summary+=" (deletions only)"
+  summary+=" untracked=$untracked"
+  if [[ $untracked -gt 0 ]]; then
+    summary+=": $listed"
+    [[ $untracked -gt $shown ]] && summary+=" (+$((untracked - shown)) more)"
+  fi
+  echo "$summary"
+}
+
 scanned=0; with_candidates=0; clean=0; errors=0
 deleted_local=0; deleted_remote=0; removed_worktrees=0; skipped=0
 
@@ -244,7 +292,15 @@ for repo in "$git_root"/*/; do
     | grep -vE "^($trunk|main|master|develop|HEAD)$" | grep -v '^$' | sort -u || true)
 
   # A branch with an open PR is never cleanup material, even if an earlier PR under the same name merged.
-  mapfile -t open_pr_branches < <(gh pr list --state open --json headRefName --jq '.[].headRefName' --limit 200 2>/dev/null || true)
+  # Fail closed: if the lookup fails we cannot know which remote branches back an
+  # open PR, and deleting one closes that PR, so remote deletion is skipped.
+  open_prs_known=true
+  open_pr_branches=()
+  if open_pr_out="$(gh pr list --state open --json headRefName --jq '.[].headRefName' --limit 200 2>/dev/null)"; then
+    mapfile -t open_pr_branches <<<"$open_pr_out"
+  else
+    open_prs_known=false
+  fi
   drop_open_pr_branches() {
     local b
     for b in "$@"; do
@@ -258,6 +314,11 @@ for repo in "$git_root"/*/; do
 
   $local_only && remote_candidates=()
   $remote_only && local_candidates=() && local_squash_verified=() && local_squash_unverified=()
+  remote_skipped_unknown=false
+  if ! $open_prs_known && [[ ${#remote_candidates[@]} -gt 0 ]]; then
+    remote_skipped_unknown=true
+    remote_candidates=()
+  fi
 
   kept_local=()
   for b in "${local_candidates[@]}"; do
@@ -304,6 +365,7 @@ for repo in "$git_root"/*/; do
   # on, not a completed task. Protect it the same way as a dirty worktree:
   # pull it out of every deletion candidate list, report it separately.
   dirty_worktrees=()
+  dirty_details=()
   new_empty_worktrees=()
   protected_branches=()
   for i in "${!worktree_branches[@]}"; do
@@ -313,6 +375,7 @@ for repo in "$git_root"/*/; do
       || contains "$br" "${kept_local_squash_unverified[@]}") || continue
     if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]]; then
       dirty_worktrees+=("$path:$br")
+      dirty_details+=("$(worktree_dirty_summary "$path")")
       protected_branches+=("$br")
     elif worktree_branch_is_new_empty "$br"; then
       new_empty_worktrees+=("$path:$br")
@@ -342,7 +405,7 @@ for repo in "$git_root"/*/; do
   if [[ ${#kept_local[@]} -eq 0 && ${#kept_local_squash_verified[@]} -eq 0 \
         && ${#kept_local_squash_unverified[@]} -eq 0 && ${#kept_remote[@]} -eq 0 \
         && ${#worktree_removals[@]} -eq 0 && ${#dirty_worktrees[@]} -eq 0 \
-        && ${#new_empty_worktrees[@]} -eq 0 ]]; then
+        && ${#new_empty_worktrees[@]} -eq 0 ]] && ! $remote_skipped_unknown; then
     clean=$((clean + 1))
     continue
   fi
@@ -356,17 +419,25 @@ for repo in "$git_root"/*/; do
     [[ ${#kept_remote[@]} -gt 0 ]] && echo "  remote: ${kept_remote[*]}"
     [[ ${#worktree_removals[@]} -gt 0 ]] && echo "  worktrees: ${worktree_removals[*]}"
     for wt in "${worktree_removals[@]}"; do
-      pids="$(pgrep -f "${wt%%:*}" | tr '\n' ' ' || true)"
+      pids="$(worktree_pids "${wt%%:*}" | tr '\n' ' ')"
       [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%%:*}: $pids"
     done
-    [[ ${#dirty_worktrees[@]} -gt 0 ]] && echo "  dirty-worktrees (uncommitted changes, branch kept, not touched): ${dirty_worktrees[*]}"
+    for i in "${!dirty_worktrees[@]}"; do
+      echo "  dirty-worktree (uncommitted changes, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
+    done
+    $remote_skipped_unknown && echo "  open-prs-unknown (gh pr list failed, remote deletion skipped for this repo)"
     [[ ${#new_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-new-empty (branch created but never committed to, branch kept, not touched): ${new_empty_worktrees[*]}"
   else
     for wt in "${worktree_removals[@]}"; do
       path="${wt%%:*}"
-      if pkill -f "$path"; then
-        for _ in 1 2 3 4 5; do pgrep -f "$path" >/dev/null || break; sleep 1; done
-        pkill -9 -f "$path" || true
+      pids="$(worktree_pids "$path" | tr '\n' ' ')"
+      if [[ -n "${pids// /}" ]]; then
+        # shellcheck disable=SC2086
+        kill $pids 2>/dev/null || true
+        for _ in 1 2 3 4 5; do [[ -z "$(worktree_pids "$path")" ]] && break; sleep 1; done
+        pids="$(worktree_pids "$path" | tr '\n' ' ')"
+        # shellcheck disable=SC2086
+        [[ -n "${pids// /}" ]] && kill -9 $pids 2>/dev/null || true
         echo "repo=$name killed-processes=$path"
       fi
       if git worktree remove "$path" 2>/dev/null; then
@@ -424,6 +495,10 @@ for repo in "$git_root"/*/; do
         skipped=$((skipped + 1))
       fi
     done
+    if $remote_skipped_unknown; then
+      echo "repo=$name skip-remote-all reason=open-prs-unknown"
+      skipped=$((skipped + 1))
+    fi
     for b in "${kept_remote[@]}"; do
       if git push origin --delete "$b" >/dev/null 2>&1; then
         echo "repo=$name deleted-remote=$b"
