@@ -28,6 +28,12 @@ Reviewer is read-only and reports concrete failure scenarios with file/line evid
 
 Review behavior, callers, error paths, tests and documentation. Apply depth from the actual change.
 
+**Test level.** For each changed behavior, name the lowest test level able to observe it. A behavior that depends on real navigation, browser history, framework-managed document state or real rendering cannot be observed in a simulated DOM. If no test at that level covers it, fill the gap in this PR, including the missing level's tooling and CI job when the project does not have them yet.
+
+**Documentation.** Identify the document that owns each changed contract. If it is stale, or missing while the project documents that kind of element, update or create it in this PR.
+
+A manual check, a "still to do" note or a limitation in the PR body does not close a test or documentation gap. If filling one requires something only the user can provide, stop and ask before opening a ready PR.
+
 ### release
 
 Default at least standard. Verify source/target and branching model, canonical version, last published release and the full delivery range, included changes and release notes, migrations, compatibility and recovery. A small version-only PR can ship a large set of earlier changes: distinguish the PR diff from the release content. Reuse prior reviews only with exact ranges and relevant evidence; independently review uncovered release/integration risks rather than blindly re-reviewing all unchanged code. A deep included risk requires deep release handling. Never bump a version twice or tag an unmerged feature commit. Publication, merge permission and CI rules remain separate from review depth.
