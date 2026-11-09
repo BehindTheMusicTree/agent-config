@@ -28,7 +28,7 @@ Reviewer is read-only and reports concrete failure scenarios with file/line evid
 
 Review behavior, callers, error paths, tests and documentation. Apply depth from the actual change.
 
-**Test level.** For each changed behavior, name the lowest test level able to observe it. A behavior that depends on real navigation, browser history, framework-managed document state or real rendering cannot be observed in a simulated DOM. If no test at that level covers it, fill the gap in this PR, including the missing level's tooling and CI job when the project does not have them yet.
+**Test level.** For each non-trivial changed behavior, name the lowest test level able to observe it. A behavior that depends on real navigation, browser history, framework-managed document state or real rendering cannot be observed in a simulated DOM. If no test at that level covers it, fill the gap in this PR, including the missing level's tooling and CI job when the project does not have them yet; that decision is then taken, so the gate question in `create-pr` need not be asked again.
 
 **Documentation.** Identify the document that owns each changed contract. If it is stale, or missing while the project documents that kind of element, update or create it in this PR.
 
