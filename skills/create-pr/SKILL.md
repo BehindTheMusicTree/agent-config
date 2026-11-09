@@ -45,7 +45,7 @@ If `CLAUDE.md` (or `.claude/CLAUDE.md`) exists and this PR adds or contradicts a
 
 ## Step 5 — Intent checks and validation
 
-Select and announce intent/depth with evidence from the hunks, using the shared policy. Perform its intent-specific checks and coverage analysis in the principal session; delegate a bounded specialist task only when a concrete risk requires it. Add missing tests/docs for non-trivial changes, run new tests, and reuse prior checks only under the policy's evidence rules. A separate test agent is not the default.
+Select and announce intent/depth with evidence from the hunks, using the shared policy. Perform its intent-specific checks and coverage analysis in the principal session; delegate a bounded specialist task only when a concrete risk requires it. For intent `change`, fill every test and documentation gap identified by the policy's `change` checks before opening a ready PR (other intents follow their own policy sections), run new tests, and reuse prior checks only under the policy's evidence rules. A separate test agent is not the default.
 
 Check whether CI enforces tests (a required test job or coverage threshold). If nothing enforces it, ask whether to add a gate unless the session already resolves that decision. Refresh affected validation after a base merge.
 

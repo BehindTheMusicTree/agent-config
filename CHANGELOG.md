@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `create-pr` now requires filling test gaps at the right level and documentation gaps in the PR itself, instead of leaving them as stated limitations
+
 ## [2.4.3] - 2026-11-09
 
 ### Fixed
