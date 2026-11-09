@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-11-09
+
 ### Fixed
 
 - `clean-repos` no longer kills processes of a different worktree whose path merely starts with the cleaned one (`feature-a` vs `feature-ab`); process matching is now literal and boundary-anchored
