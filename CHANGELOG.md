@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-10
+
 ### Added
 
 - Claude plugin `PreToolUse` hook (`hooks/hooks.json`, `scripts/graphify-fresh.sh`) that keeps graphify graphs fresh at read time: it seeds linked worktrees from the main checkout, refreshes stale graphs in the background and delegates the nudge to `graphify hook-guard` only when the graph matches the checkout
