@@ -49,6 +49,15 @@ class PluginPackagingTests(unittest.TestCase):
         self.assertFalse((stage / 'old').exists())
         self.assertEqual([p.name for p in stage.parent.iterdir()], ['commit'])
 
+    def test_stale_stage_with_symlink_is_rebuilt(self):
+        stage = self.root / 'marketplaces/commit'
+        stage.mkdir(parents=True)
+        (stage / 'link').symlink_to(self.root)
+        fresh = self.root / 'fresh'
+        plugin.copy_plugin_dirs(self.source, fresh)
+        plugin.place_stage(fresh, stage)
+        self.assertFalse((stage / 'link').exists() or (stage / 'link').is_symlink())
+
     def test_identical_stage_is_kept(self):
         stage = self.root / 'marketplaces/commit'
         stage.parent.mkdir()
@@ -93,6 +102,15 @@ class ClaudePluginTests(unittest.TestCase):
         self.assertIn(new_id, installed)
         self.assertNotIn(old_id, installed)
         self.assertEqual(installed[new_id][0]['version'], '2.0.1')
+
+    def test_reinstalls_when_the_plugin_cache_is_incomplete(self):
+        source = self.source('d' * 40, '2.0.0')
+        identifier = plugin.install(source, self.home, self.stages)
+        cached = Path(json.loads(plugin.run_claude(self.home, 'list', '--json'))[0]['installPath'])
+        (cached / 'commands/create-pr.md').write_text('stale')
+        plugin.install(source, self.home, self.stages)
+        self.assertEqual(plugin.cache_differences(source, cached), [])
+        self.assertTrue(identifier.startswith('agent-config@'))
 
     def test_rebuilds_modified_marketplace(self):
         source = self.source('c' * 40, '2.0.0')

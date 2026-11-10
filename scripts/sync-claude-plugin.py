@@ -61,8 +61,11 @@ def place_stage(temporary, stage):
     if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
         raise ValueError(f'Managed marketplace is not a directory: {stage}')
     if stage.exists():
-        if tree_digest(stage) == tree_digest(temporary):
-            return
+        try:
+            if tree_digest(stage) == tree_digest(temporary):
+                return
+        except ValueError:
+            pass  # a symlink inside a stale stage: derived data, rebuild it
         aside = Path(tempfile.mkdtemp(prefix='.stale-', dir=stage.parent)) / stage.name
         os.rename(stage, aside)
         try:
@@ -70,9 +73,26 @@ def place_stage(temporary, stage):
         except OSError:
             os.rename(aside, stage)
             raise
-        shutil.rmtree(aside.parent)
+        shutil.rmtree(aside.parent, ignore_errors=True)
     else:
         os.rename(temporary, stage)
+
+
+def repair_cache(home, name, identifier, stage, source, entry):
+    """Reinstall when Claude kept a cache that differs from the release (it treats an
+    already-installed identifier as current); fail only if the reinstall still differs."""
+    if not cache_differences(source, Path(entry['installPath'])):
+        return entry
+    run_claude(home, 'uninstall', identifier, '--scope', 'user', '--keep-data', '--json')
+    run_claude(home, 'install', name, '--marketplace', str(stage), '--scope', 'user', '--json')
+    repaired = [item for item in json.loads(run_claude(home, 'list', '--json'))
+                if isinstance(item, dict) and item.get('id') == identifier and item.get('scope') == 'user']
+    if len(repaired) != 1:
+        raise RuntimeError(f'Claude did not reinstall {identifier}')
+    differences = cache_differences(source, Path(repaired[0]['installPath']))
+    if differences:
+        raise RuntimeError(f"Claude plugin cache differs from release: {', '.join(differences[:5])}")
+    return repaired[0]
 
 
 def cache_differences(source, cached):
@@ -172,17 +192,7 @@ def install_sources(prepared, home):
         entries = [entry for entry in installed.get(item['identifier'], []) if entry.get('scope') == 'user']
         if len(entries) != 1 or entries[0].get('version') != item['version'] or entries[0].get('enabled') is not True:
             raise RuntimeError(f"Claude did not record the requested plugin version for {item['identifier']}")
-        if cache_differences(item['source'], Path(entries[0]['installPath'])):
-            run_claude(home, 'uninstall', item['identifier'], '--scope', 'user', '--keep-data', '--json')
-            run_claude(home, 'install', item['name'], '--marketplace', str(item['stage']), '--scope', 'user', '--json')
-            repaired = [entry for entry in json.loads(run_claude(home, 'list', '--json'))
-                        if isinstance(entry, dict) and entry.get('id') == item['identifier'] and entry.get('scope') == 'user']
-            if len(repaired) != 1:
-                raise RuntimeError(f"Claude did not reinstall {item['identifier']}")
-            installed[item['identifier']] = repaired
-            differences = cache_differences(item['source'], Path(repaired[0]['installPath']))
-            if differences:
-                raise RuntimeError(f"Claude plugin cache differs from release: {', '.join(differences[:5])}")
+        installed[item['identifier']] = [repair_cache(home, item['name'], item['identifier'], item['stage'], item['source'], entries[0])]
     for identifier in sorted(old - expected):
         if any(entry.get('scope') == 'user' for entry in installed.get(identifier, [])):
             run_claude(home, 'uninstall', identifier, '--scope', 'user', '--keep-data', '--json')
@@ -286,9 +296,7 @@ def install(source, home, stages):
     entries = [entry for entry in installed.get(identifier, []) if entry.get('scope') == 'user']
     if len(entries) != 1 or entries[0].get('version') != manifest['version'] or entries[0].get('enabled') is not True:
         raise RuntimeError(f'Claude did not record the requested plugin version for {identifier}')
-    differences = cache_differences(source, Path(entries[0]['installPath']))
-    if differences:
-        raise RuntimeError(f"Claude plugin cache differs from release: {', '.join(differences[:5])}")
+    repair_cache(home, 'agent-config', identifier, stage, source, entries[0])
 
     previous.discard(identifier)
     for key in sorted(previous):
