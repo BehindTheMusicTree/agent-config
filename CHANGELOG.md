@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Claude plugin `PreToolUse` hook (`hooks/hooks.json`, `scripts/graphify-fresh.sh`) that keeps graphify graphs fresh at read time: it seeds linked worktrees from the main checkout, refreshes stale graphs in the background and delegates the nudge to `graphify hook-guard` only when the graph matches the checkout
+
 ### Changed
 
 - `create-pr` now requires filling test gaps at the right level and documentation gaps in the PR itself, instead of leaving them as stated limitations

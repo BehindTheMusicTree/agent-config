@@ -28,7 +28,7 @@ class ClaudePluginTests(unittest.TestCase):
     def source(self, commit, version):
         source = self.root / commit
         source.mkdir()
-        for directory in ('.claude-plugin', 'commands', 'scripts', 'references'):
+        for directory in ('.claude-plugin', 'commands', 'hooks', 'scripts', 'references'):
             shutil.copytree(ROOT / directory, source / directory, ignore=shutil.ignore_patterns('__pycache__'))
         manifest = source / '.claude-plugin/plugin.json'
         data = json.loads(manifest.read_text())
@@ -66,7 +66,7 @@ class ClaudePluginMockTests(unittest.TestCase):
         self.commit = 'd' * 40
         self.source = self.root / self.commit
         self.source.mkdir()
-        for name in ('.claude-plugin', 'commands', 'scripts', 'references'):
+        for name in ('.claude-plugin', 'commands', 'hooks', 'scripts', 'references'):
             shutil.copytree(ROOT / name, self.source / name, ignore=shutil.ignore_patterns('__pycache__'))
         manifest = self.source / '.claude-plugin/plugin.json'
         data = json.loads(manifest.read_text())
@@ -137,6 +137,16 @@ class ClaudePluginMockTests(unittest.TestCase):
             policy = Path(entry['installPath']) / 'references/pr-policy.md'
             self.assertEqual(policy.read_bytes(), (self.source / 'references/pr-policy.md').read_bytes())
             policy.write_text('changed policy')
+            with self.assertRaisesRegex(ValueError, 'cache differs'):
+                plugin.verify(self.source, self.home)
+
+    def test_hooks_are_packaged_and_verified(self):
+        with patch.object(plugin, 'run_claude', side_effect=self.fake_cli):
+            identifier = plugin.install(self.source, self.home, self.root / 'stages')
+            entry = next(item for item in self.listing if item['id'] == identifier)
+            hooks = Path(entry['installPath']) / 'hooks/hooks.json'
+            self.assertEqual(hooks.read_bytes(), (self.source / 'hooks/hooks.json').read_bytes())
+            hooks.write_text('{}')
             with self.assertRaisesRegex(ValueError, 'cache differs'):
                 plugin.verify(self.source, self.home)
 

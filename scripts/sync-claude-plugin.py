@@ -36,6 +36,7 @@ def tree_digest(directory):
 
 def plugin_files(source):
     return [source / '.claude-plugin/plugin.json', *(source / 'commands').glob('*.md'),
+            *(source / 'hooks').glob('*'),
             *(p for p in (source / 'scripts').glob('*') if p.is_file()),
             *(p for p in (source / 'references').rglob('*') if p.is_file())]
 
@@ -72,7 +73,7 @@ def stage_sources(prepared):
         stage.parent.mkdir(parents=True, exist_ok=True)
         temporary = Path(tempfile.mkdtemp(prefix='.marketplace-', dir=stage.parent))
         try:
-            for name in ('.claude-plugin', 'commands', 'scripts', 'references'):
+            for name in ('.claude-plugin', 'commands', 'hooks', 'scripts', 'references'):
                 if (source / name).is_dir():
                     shutil.copytree(source / name, temporary / name)
             (temporary / '.claude-plugin/marketplace.json').write_text(json.dumps({
@@ -222,8 +223,9 @@ def install(source, home, stages):
     try:
         for name in ('.claude-plugin', 'commands', 'scripts'):
             shutil.copytree(source / name, temp / name)
-        if (source / 'references').is_dir():
-            shutil.copytree(source / 'references', temp / 'references')
+        for name in ('hooks', 'references'):
+            if (source / name).is_dir():
+                shutil.copytree(source / name, temp / name)
         (temp / '.claude-plugin/marketplace.json').write_text(json.dumps({
             'name': marketplace, 'owner': {'name': 'BehindTheMusicTree'},
             'plugins': [{'name': 'agent-config', 'source': './'}],
