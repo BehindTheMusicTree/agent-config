@@ -24,6 +24,7 @@ class GraphifyFreshTests(unittest.TestCase):
         self.main.mkdir()
         git(self.main, 'init', '-q', '-b', 'main')
         (self.main / 'a.py').write_text('x = 1\n')
+        (self.main / '.gitignore').write_text('graphify-out/\n')
         git(self.main, 'add', '.')
         git(self.main, 'commit', '-q', '-m', 'init')
         self.bin = self.root / 'bin'
@@ -64,9 +65,19 @@ class GraphifyFreshTests(unittest.TestCase):
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
 
-    def test_silent_without_graph_in_main_checkout(self):
+    def test_silent_when_graphify_out_is_not_ignored(self):
+        (self.main / '.gitignore').unlink()
+        git(self.main, 'commit', '-q', '-am', 'drop ignore')
+        self.graph(self.main)
         self.assertEqual(self.run_hook(self.main), '')
         self.assertEqual(self.calls_made(), [])
+
+    def test_ignored_repo_without_graph_is_built_for_the_first_time(self):
+        out = json.loads(self.run_hook(self.main))['hookSpecificOutput']['additionalContext']
+        self.assertIn('built for the first time', out)
+        self.wait_for_idle(self.main)
+        self.assertEqual(len([c for c in self.calls_made() if '|update .|' in c]), 1)
+        self.assertTrue((self.main / 'graphify-out/.fresh-key').exists())
 
     def test_silent_when_graphify_missing(self):
         self.graph(self.main)

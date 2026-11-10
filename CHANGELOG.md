@@ -9,6 +9,7 @@
 
 ### Changed
 
+- The graphify freshness hook now activates on a versioned `.gitignore` entry for `graphify-out/` instead of an existing main-checkout graph, and builds the first graph in the background (with a one-time notice) when none exists
 - The packaged plugin directories are defined once (`PLUGIN_DIRS`) and `validate.py` fails on an unpackaged top-level directory or a hook path outside them
 
 ## [2.5.0] - 2026-11-10

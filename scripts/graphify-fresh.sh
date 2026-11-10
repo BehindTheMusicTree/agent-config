@@ -25,11 +25,11 @@ esac
 
 top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || exit 0
 main=$(git -C "$top" worktree list --porcelain | sed -n 's/^worktree //p' | sed -n 1p)
-# Opt-in: only repos whose main checkout already has a graph.
-[ -f "$main/graphify-out/graph.json" ] || exit 0
+# Opt-in: only repos that gitignore graphify-out/ (versioned signal; a graph is built if absent).
+git -C "$top" check-ignore -q graphify-out/graph.json || exit 0
 
 out="$top/graphify-out"
-if [ "$top" != "$main" ] && [ ! -d "$out" ]; then
+if [ "$top" != "$main" ] && [ ! -d "$out" ] && [ -f "$main/graphify-out/graph.json" ]; then
   mkdir -p "$out"
   src="$main/graphify-out"
   for f in graph.json manifest.json GRAPH_REPORT.md .graphify_*; do
@@ -37,7 +37,7 @@ if [ "$top" != "$main" ] && [ ! -d "$out" ]; then
   done
   [ -d "$src/cache" ] && cp -R "$src/cache" "$out/"
 fi
-[ -d "$out" ] || exit 0
+mkdir -p "$out"
 
 head_sha=$(git -C "$top" rev-parse HEAD)
 diff_sum=$(git -C "$top" diff HEAD --no-ext-diff -- . ':!graphify-out' | shasum -a 256 | cut -d' ' -f1)
@@ -69,8 +69,13 @@ fi
 
 if [ "$(cat "$out/.notified-key" 2>/dev/null)" != "$key" ]; then
   printf '%s' "$key" >"$out/.notified-key"
-  built=an\ older\ commit
-  [ -f "$out/.fresh-key" ] && built=$(cut -c1-8 "$out/.fresh-key")
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"graphify graph is refreshing in the background (built for %s); use rg/Read for now."}}' "$built"
+  if [ ! -f "$out/graph.json" ]; then
+    msg="graphify graph is being built for the first time; use rg/Read for now."
+  else
+    built=an\ older\ commit
+    [ -f "$out/.fresh-key" ] && built=$(cut -c1-8 "$out/.fresh-key")
+    msg="graphify graph is refreshing in the background (built for $built); use rg/Read for now."
+  fi
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}' "$msg"
 fi
 exit 0
