@@ -36,7 +36,7 @@ def tree_digest(directory):
 
 def plugin_files(source):
     return [source / '.claude-plugin/plugin.json', *(source / 'commands').glob('*.md'),
-            *(source / 'hooks').glob('*'),
+            *(p for p in (source / 'hooks').glob('*') if p.is_file()),
             *(p for p in (source / 'scripts').glob('*') if p.is_file()),
             *(p for p in (source / 'references').rglob('*') if p.is_file())]
 

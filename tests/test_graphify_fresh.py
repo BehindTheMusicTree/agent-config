@@ -126,6 +126,32 @@ class GraphifyFreshTests(unittest.TestCase):
         self.wait_for_idle(self.main)
         self.assertNotEqual(edited, (self.main / 'graphify-out/.fresh-key').read_text())
 
+    def test_untracked_file_content_change_changes_the_key(self):
+        self.graph(self.main)
+        (self.main / 'b.py').write_text('y = 1\n')
+        self.run_hook(self.main)
+        self.wait_for_idle(self.main)
+        key = (self.main / 'graphify-out/.fresh-key').read_text()
+        (self.main / 'b.py').write_text('y = 2\n')
+        self.assertIn('refreshing', self.run_hook(self.main))
+        self.wait_for_idle(self.main)
+        self.assertNotEqual(key, (self.main / 'graphify-out/.fresh-key').read_text())
+
+    def test_failed_update_is_not_retried_for_the_same_key(self):
+        self.graph(self.main)
+        fake = self.bin / 'graphify'
+        fake.write_text(f'#!/usr/bin/env bash\necho "$*" >> "{self.calls}"\nexit 1\n')
+        fake.chmod(0o755)
+        self.run_hook(self.main)
+        self.wait_for_idle(self.main)
+        self.run_hook(self.main)
+        time.sleep(0.3)
+        self.assertEqual(len(self.calls_made()), 1)
+        (self.main / 'a.py').write_text('x = 3\n')
+        self.run_hook(self.main)
+        self.wait_for_idle(self.main)
+        self.assertEqual(len(self.calls_made()), 2)
+
     def test_linked_worktree_is_seeded_from_main_checkout(self):
         self.graph(self.main)
         out = self.main / 'graphify-out'

@@ -41,7 +41,7 @@ fi
 
 head_sha=$(git -C "$top" rev-parse HEAD)
 diff_sum=$(git -C "$top" diff HEAD --no-ext-diff -- . ':!graphify-out' | shasum -a 256 | cut -d' ' -f1)
-untracked_sum=$(git -C "$top" ls-files -o --exclude-standard | { grep -v '^graphify-out/' || true; } | shasum -a 256 | cut -d' ' -f1)
+untracked_sum=$(cd "$top" && git ls-files -o --exclude-standard | { grep -v '^graphify-out/' || true; } | tr '\n' '\0' | { xargs -0 shasum -a 256 2>/dev/null || true; } | shasum -a 256 | cut -d' ' -f1)
 key="$head_sha:$(printf '%s%s' "$diff_sum" "$untracked_sum" | shasum -a 256 | cut -d' ' -f1)"
 
 if [ -f "$out/.fresh-key" ] && [ "$(cat "$out/.fresh-key")" = "$key" ]; then
@@ -53,15 +53,17 @@ lock="$out/.refresh.lock"
 if [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
   rmdir "$lock" 2>/dev/null || true
 fi
-if mkdir "$lock" 2>/dev/null; then
+if [ "$(cat "$out/.failed-key" 2>/dev/null)" != "$key" ] && mkdir "$lock" 2>/dev/null; then
   (
     trap '' HUP
     cd "$top" || exit 0
     if GRAPHIFY_NO_BACKUP=1 graphify update . >"$out/refresh.log" 2>&1; then
       printf '%s' "$key" >"$out/.fresh-key"
+    else
+      printf '%s' "$key" >"$out/.failed-key"
     fi
     rmdir "$lock" 2>/dev/null || true
-  ) >/dev/null 2>&1 &
+  ) </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
 fi
 
