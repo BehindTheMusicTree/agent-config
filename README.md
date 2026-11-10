@@ -71,3 +71,11 @@ The Claude plugin ships a `PreToolUse` hook (`hooks/hooks.json`, matcher `Bash|G
 - Otherwise it starts one detached `graphify update .` (code-only, no backup dirs, guarded by `graphify-out/.refresh.lock`, stale after 10 minutes), logs to `graphify-out/refresh.log`, and tells the agent once per key to use `rg`/`Read` meanwhile.
 
 This replaces per-repository `graphify hook-guard` entries in `.claude/settings.json`. The hook reaches installed sessions with the next plugin release.
+
+### Codex
+
+Codex has no plugin hooks, so release synchronization (`scripts/sync-local-release.py`, `--sync-local`; checked by `--check`) registers the same script in `~/.codex/hooks.json` as one managed `PreToolUse` entry (matcher `Bash`, timeout 5 s) that runs `graphify-fresh.sh --client codex` from the active release snapshot. Other hooks in the file are preserved, the managed entry is found again by its script name and replaced on the next release, and an invalid or symlinked file stops synchronization. Preview or write it alone with `python3 scripts/sync-codex-hooks.py` / `--apply`.
+
+- With `--client codex` the hook only seeds worktrees and refreshes the graph in the background, in silence: it injects nothing and never calls `graphify hook-guard`, because Codex Desktop rejects `additionalContext` on `PreToolUse`. The Codex adapter and the graphify skill steer the agent instead.
+- Codex asks you to trust a new or changed hook: review it once in `/hooks` after the first synchronization and after each release that changes its path.
+- The graphify skill is a machine install, not part of this repository: run `graphify install` (Claude) and `graphify install --platform codex` (Codex) once, and again after `uv tool upgrade graphifyy`. Do not run `graphify codex install`, which writes into every `AGENTS.md`.

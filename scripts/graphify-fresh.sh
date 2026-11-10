@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 # PreToolUse hook: keep graphify graphs fresh at read time. Never blocks, always exits 0.
+# Usage: graphify-fresh.sh [--client claude|codex]. The codex client only seeds and refreshes
+# the graph, in silence: Codex Desktop rejects additionalContext on PreToolUse, so its agent is
+# steered by the graphify skill and the Codex instructions instead.
 set -u
 trap 'exit 0' ERR
+
+client=claude
+if [ $# -gt 0 ]; then
+  [ "$1" = "--client" ] || exit 0
+  client=${2:-}
+fi
+case "$client" in
+  claude|codex) ;;
+  *) exit 0 ;;
+esac
 
 input=$(cat)
 command -v graphify >/dev/null 2>&1 || exit 0
@@ -45,7 +58,7 @@ untracked_sum=$(cd "$top" && git ls-files -o --exclude-standard | { grep -v '^gr
 key="$head_sha:$(printf '%s%s' "$diff_sum" "$untracked_sum" | shasum -a 256 | cut -d' ' -f1)"
 
 if [ -f "$out/.fresh-key" ] && [ "$(cat "$out/.fresh-key")" = "$key" ]; then
-  cd "$top" && printf '%s' "$input" | graphify hook-guard "$kind"
+  [ "$client" = claude ] && cd "$top" && printf '%s' "$input" | graphify hook-guard "$kind"
   exit 0
 fi
 
@@ -66,6 +79,8 @@ if [ "$(cat "$out/.failed-key" 2>/dev/null)" != "$key" ] && mkdir "$lock" 2>/dev
   ) </dev/null >/dev/null 2>&1 &
   disown 2>/dev/null || true
 fi
+
+[ "$client" = claude ] || exit 0
 
 if [ "$(cat "$out/.notified-key" 2>/dev/null)" != "$key" ]; then
   printf '%s' "$key" >"$out/.notified-key"
