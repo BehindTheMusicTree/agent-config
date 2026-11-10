@@ -34,11 +34,71 @@ def tree_digest(directory):
 
 
 
+# Single source of truth for what ships in the plugin: staging, the cache check and
+# validate.py all derive from it, so a new directory cannot be packaged in one place only.
+PLUGIN_DIRS = ('commands', 'hooks', 'scripts', 'references')
+REQUIRED_PLUGIN_DIRS = ('commands', 'scripts')
+
+
 def plugin_files(source):
-    return [source / '.claude-plugin/plugin.json', *(source / 'commands').glob('*.md'),
-            *(p for p in (source / 'hooks').glob('*') if p.is_file()),
-            *(p for p in (source / 'scripts').glob('*') if p.is_file()),
-            *(p for p in (source / 'references').rglob('*') if p.is_file())]
+    return [source / '.claude-plugin/plugin.json',
+            *(p for name in PLUGIN_DIRS if (source / name).is_dir()
+              for p in sorted((source / name).rglob('*')) if p.is_file())]
+
+
+def copy_plugin_dirs(source, destination):
+    shutil.copytree(source / '.claude-plugin', destination / '.claude-plugin')
+    for name in PLUGIN_DIRS:
+        if (source / name).is_dir():
+            shutil.copytree(source / name, destination / name)
+        elif name in REQUIRED_PLUGIN_DIRS:
+            raise ValueError(f'Release is missing required plugin directory: {name}')
+
+
+def place_stage(temporary, stage):
+    """Atomically install the freshly built marketplace; stages are derived data, so a
+    stale one (built by older packaging code) is replaced rather than treated as an error."""
+    if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
+        raise ValueError(f'Managed marketplace is not a directory: {stage}')
+    if stage.exists():
+        try:
+            if tree_digest(stage) == tree_digest(temporary):
+                return
+        except ValueError:
+            pass  # a symlink inside a stale stage: derived data, rebuild it
+        aside = Path(tempfile.mkdtemp(prefix='.stale-', dir=stage.parent)) / stage.name
+        os.rename(stage, aside)
+        try:
+            os.rename(temporary, stage)
+        except OSError:
+            os.rename(aside, stage)
+            raise
+        shutil.rmtree(aside.parent, ignore_errors=True)
+    else:
+        os.rename(temporary, stage)
+
+
+def repair_cache(home, name, identifier, stage, source, entry):
+    """Reinstall when Claude kept a cache that differs from the release (it treats an
+    already-installed identifier as current); fail only if the reinstall still differs."""
+    if not cache_differences(source, Path(entry['installPath'])):
+        return entry
+    run_claude(home, 'uninstall', identifier, '--scope', 'user', '--keep-data', '--json')
+    run_claude(home, 'install', name, '--marketplace', str(stage), '--scope', 'user', '--json')
+    repaired = [item for item in json.loads(run_claude(home, 'list', '--json'))
+                if isinstance(item, dict) and item.get('id') == identifier and item.get('scope') == 'user']
+    if len(repaired) != 1:
+        raise RuntimeError(f'Claude did not reinstall {identifier}')
+    differences = cache_differences(source, Path(repaired[0]['installPath']))
+    if differences:
+        raise RuntimeError(f"Claude plugin cache differs from release: {', '.join(differences[:5])}")
+    return repaired[0]
+
+
+def cache_differences(source, cached):
+    return [str(file.relative_to(source)) for file in plugin_files(source)
+            if not (cached / file.relative_to(source)).is_file()
+            or (cached / file.relative_to(source)).read_bytes() != file.read_bytes()]
 
 
 def prepare_sources(sources, stages):
@@ -73,18 +133,12 @@ def stage_sources(prepared):
         stage.parent.mkdir(parents=True, exist_ok=True)
         temporary = Path(tempfile.mkdtemp(prefix='.marketplace-', dir=stage.parent))
         try:
-            for name in ('.claude-plugin', 'commands', 'hooks', 'scripts', 'references'):
-                if (source / name).is_dir():
-                    shutil.copytree(source / name, temporary / name)
+            copy_plugin_dirs(source, temporary)
             (temporary / '.claude-plugin/marketplace.json').write_text(json.dumps({
                 'name': item['marketplace'], 'owner': {'name': item['name']},
                 'plugins': [{'name': item['name'], 'source': './'}],
             }, indent=2) + '\n')
-            if stage.exists() or stage.is_symlink():
-                if stage.is_symlink() or not stage.is_dir() or tree_digest(stage) != tree_digest(temporary):
-                    raise ValueError(f'Managed marketplace differs from release: {stage}')
-            else:
-                os.rename(temporary, stage)
+            place_stage(temporary, stage)
         finally:
             if temporary.exists():
                 shutil.rmtree(temporary)
@@ -138,11 +192,7 @@ def install_sources(prepared, home):
         entries = [entry for entry in installed.get(item['identifier'], []) if entry.get('scope') == 'user']
         if len(entries) != 1 or entries[0].get('version') != item['version'] or entries[0].get('enabled') is not True:
             raise RuntimeError(f"Claude did not record the requested plugin version for {item['identifier']}")
-        cached = Path(entries[0]['installPath'])
-        for file in plugin_files(item['source']):
-            relative = file.relative_to(item['source'])
-            if not (cached / relative).is_file() or (cached / relative).read_bytes() != file.read_bytes():
-                raise RuntimeError(f'Claude plugin cache differs from release: {relative}')
+        installed[item['identifier']] = [repair_cache(home, item['name'], item['identifier'], item['stage'], item['source'], entries[0])]
     for identifier in sorted(old - expected):
         if any(entry.get('scope') == 'user' for entry in installed.get(identifier, [])):
             run_claude(home, 'uninstall', identifier, '--scope', 'user', '--keep-data', '--json')
@@ -179,11 +229,9 @@ def verify_sources(prepared, home):
         matches = [entry for entry in installed.get(identifier, []) if entry.get('scope') == 'user']
         if len(matches) != 1 or matches[0].get('version') != item['version'] or enabled.get(identifier) is not True:
             raise ValueError(f'Claude plugin is missing, disabled, or has the wrong version: {identifier}')
-        cache = Path(matches[0]['installPath'])
-        for file in plugin_files(item['source']):
-            relative = file.relative_to(item['source'])
-            if not (cache / relative).is_file() or (cache / relative).read_bytes() != file.read_bytes():
-                raise ValueError(f'Claude plugin cache differs from release: {relative}')
+        differences = cache_differences(item['source'], Path(matches[0]['installPath']))
+        if differences:
+            raise ValueError(f"Claude plugin cache differs from release: {', '.join(differences[:5])}")
 
 
 def verify(source, home):
@@ -200,12 +248,9 @@ def verify(source, home):
     version = json.loads((source / '.claude-plugin/plugin.json').read_text())['version']
     if len(matches) != 1 or matches[0].get('version') != version or settings.get('enabledPlugins', {}).get(identifier) is not True:
         raise ValueError('Claude plugin is missing, disabled, or has the wrong version')
-    cached = Path(matches[0]['installPath'])
-    files = plugin_files(source)
-    for file in files:
-        target = cached / file.relative_to(source)
-        if not target.is_file() or target.read_bytes() != file.read_bytes():
-            raise ValueError(f'Claude plugin cache differs from release: {file.relative_to(source)}')
+    differences = cache_differences(source, Path(matches[0]['installPath']))
+    if differences:
+        raise ValueError(f"Claude plugin cache differs from release: {', '.join(differences[:5])}")
     return identifier
 
 def install(source, home, stages):
@@ -221,20 +266,12 @@ def install(source, home, stages):
     stages.mkdir(parents=True, exist_ok=True)
     temp = Path(tempfile.mkdtemp(prefix='.marketplace-', dir=stages))
     try:
-        for name in ('.claude-plugin', 'commands', 'scripts'):
-            shutil.copytree(source / name, temp / name)
-        for name in ('hooks', 'references'):
-            if (source / name).is_dir():
-                shutil.copytree(source / name, temp / name)
+        copy_plugin_dirs(source, temp)
         (temp / '.claude-plugin/marketplace.json').write_text(json.dumps({
             'name': marketplace, 'owner': {'name': 'BehindTheMusicTree'},
             'plugins': [{'name': 'agent-config', 'source': './'}],
         }, indent=2) + '\n')
-        if stage.exists() or stage.is_symlink():
-            if stage.is_symlink() or not stage.is_dir() or tree_digest(stage) != tree_digest(temp):
-                raise ValueError(f'Managed marketplace differs from release: {stage}')
-        else:
-            os.rename(temp, stage)
+        place_stage(temp, stage)
     finally:
         if temp.exists():
             shutil.rmtree(temp)
@@ -259,11 +296,7 @@ def install(source, home, stages):
     entries = [entry for entry in installed.get(identifier, []) if entry.get('scope') == 'user']
     if len(entries) != 1 or entries[0].get('version') != manifest['version'] or entries[0].get('enabled') is not True:
         raise RuntimeError(f'Claude did not record the requested plugin version for {identifier}')
-    cached = Path(entries[0]['installPath'])
-    for file in plugin_files(source):
-        relative = file.relative_to(source)
-        if not (cached / relative).is_file() or (cached / relative).read_bytes() != file.read_bytes():
-            raise RuntimeError(f'Claude plugin cache differs from release: {relative}')
+    repair_cache(home, 'agent-config', identifier, stage, source, entries[0])
 
     previous.discard(identifier)
     for key in sorted(previous):

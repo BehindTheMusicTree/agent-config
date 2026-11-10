@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Installing a release that adds plugin content (such as `hooks/`) no longer ships an incomplete plugin when the launching checkout is older than the release: `--sync-local` and `--check` now run the installer from the verified release snapshot instead of the checkout
+- A stale marketplace stage or Claude plugin cache is rebuilt (and reinstalled) instead of aborting with "differs from release"; the check still fails if the result differs
+
+### Changed
+
+- The packaged plugin directories are defined once (`PLUGIN_DIRS`) and `validate.py` fails on an unpackaged top-level directory or a hook path outside them
+
 ## [2.5.0] - 2026-11-10
 
 ### Added

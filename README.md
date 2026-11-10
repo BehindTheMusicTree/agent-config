@@ -18,7 +18,7 @@ Claude can install the plugin using `/plugin install agent-config --marketplace 
 
 Create a local JSON profile with `version: 1`, `public` and `private`. Both source entries require `repo` (owner/name) and `id` (the immutable GitHub repository id returned by `gh repo view OWNER/NAME --json id`). The private entry can also specify `version` for rollback; otherwise its latest stable release is selected. The private release must contain `agent-config-dependency.json` with `repo` and an exact public `tag`.
 
-Run `python3 scripts/prepare-remote-release.py --profile /absolute/path/profile.json --sync-local`. Use `--check` to verify both installed snapshots, skills, instructions and cached plugins. Authentication through `gh` and Git is required for private downloads. A missing or changed source aborts installation.
+Run `python3 scripts/prepare-remote-release.py --profile /absolute/path/profile.json --sync-local`. Use `--check` to verify both installed snapshots, skills, instructions and cached plugins. Authentication through `gh` and Git is required for private downloads. A missing or changed source aborts installation. Synchronization and `--check` run the installer from the downloaded release snapshot, so the launching checkout can be older than the release it installs.
 
 After the first successful synchronization, macOS users can run `python3 scripts/manage-auto-sync.py install --profile /absolute/path/profile.json`. This replaces the managed legacy scheduler and follows the public updater through `current-profile`. Keep the profile file available. The job preserves the agent homes and authentication configuration from its installation environment.
 
