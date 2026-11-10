@@ -7,7 +7,8 @@ set -u
 trap 'exit 0' ERR
 
 client=claude
-if [ "${1:-}" = "--client" ]; then
+if [ $# -gt 0 ]; then
+  [ "$1" = "--client" ] || exit 0
   client=${2:-}
 fi
 case "$client" in
