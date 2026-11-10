@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-11-10
+
 ### Added
 
 - Codex graphify freshness: release synchronization registers `scripts/graphify-fresh.sh --client codex` as a managed `PreToolUse` hook in `~/.codex/hooks.json` (`scripts/sync-codex-hooks.py`), preserving other hooks and rolling back with the rest of the synchronization; `--client codex` refreshes the graph in silence, without injected context or `graphify hook-guard`
