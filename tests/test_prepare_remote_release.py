@@ -58,6 +58,8 @@ class RemoteReleaseTests(unittest.TestCase):
                 source = releases / 'sources' / name / commit
                 source.mkdir(parents=True)
                 (source / 'content').write_text(name)
+                (source / 'scripts').mkdir()
+                (source / 'scripts/sync-local-release.py').write_text('')
                 sources[name] = source
             fake = SimpleNamespace(
                 synchronize_sources=lambda *args: None,
@@ -74,6 +76,16 @@ class RemoteReleaseTests(unittest.TestCase):
                 self.assertEqual(remote.check_profile({}, releases, root / 'claude', root / 'codex'), sources)
                 with patch.object(fake, 'synchronize_sources', side_effect=AssertionError('unnecessary reinstall')):
                     self.assertEqual(remote.synchronize_profile({}, releases, root / 'claude', root / 'codex'), sources)
+
+    def test_installer_is_loaded_from_the_snapshot_not_the_checkout(self):
+        with tempfile.TemporaryDirectory(prefix='snapshot-test-') as directory:
+            snapshot = Path(directory)
+            (snapshot / 'scripts').mkdir()
+            (snapshot / 'scripts/sync-local-release.py').write_text('ORIGIN = "snapshot"\n')
+            self.assertEqual(remote.load_snapshot_sync(snapshot, 'snapshot_sync').ORIGIN, 'snapshot')
+            (snapshot / 'scripts/sync-local-release.py').unlink()
+            with self.assertRaises(ValueError):
+                remote.load_snapshot_sync(snapshot, 'snapshot_sync')
 
     def test_updater_does_not_write_bytecode_to_snapshot(self):
         with tempfile.TemporaryDirectory(prefix='snapshot-test-') as directory:

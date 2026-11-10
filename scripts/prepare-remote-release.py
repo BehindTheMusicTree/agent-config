@@ -17,6 +17,21 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('prepare_release', ROOT / 'scripts/prepare-release.py')
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
+
+
+def load_snapshot_sync(snapshot, name):
+    """Load the installer from the verified snapshot being installed, not from the checkout
+    that launched this script: packaging and verification must match the release's own
+    contents, or a release that adds plugin content is silently installed incomplete."""
+    script = snapshot / 'scripts/sync-local-release.py'
+    if not script.is_file():
+        raise ValueError(f'Release has no installer: {script}')
+    sync_spec = importlib.util.spec_from_file_location(name, script)
+    module = importlib.util.module_from_spec(sync_spec)
+    sync_spec.loader.exec_module(module)
+    return module
+
+
 TAG = re.compile(r'v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)')
 REPOSITORY = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*')
 
@@ -131,9 +146,7 @@ def synchronize_remote(repo, version, releases, claude_home, codex_home, adopt_f
             except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError):
                 pass
         path = prepare_remote(repo, version, releases)
-        sync_spec = importlib.util.spec_from_file_location('sync_local', ROOT / 'scripts/sync-local-release.py')
-        sync = importlib.util.module_from_spec(sync_spec)
-        sync_spec.loader.exec_module(sync)
+        sync = load_snapshot_sync(path, 'sync_local')
         sync.synchronize_source(path, claude_home, codex_home, adopt_from)
         activate(path, releases)
         return path
@@ -159,9 +172,7 @@ def synchronize_profile(profile, releases, claude_home, codex_home, adopt_from=N
             except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError):
                 pass
         sources = prepare_profile(profile, releases / 'sources')
-        sync_spec = importlib.util.spec_from_file_location('sync_profile', ROOT / 'scripts/sync-local-release.py')
-        sync = importlib.util.module_from_spec(sync_spec)
-        sync_spec.loader.exec_module(sync)
+        sync = load_snapshot_sync(sources['public'], 'sync_profile')
         sync.synchronize_sources(sources, claude_home, codex_home, releases.parent / 'marketplaces-v2', adopt_from)
         fd, filename = tempfile.mkstemp(prefix='.active-sources-', dir=releases.parent)
         try:
@@ -202,9 +213,7 @@ def check_profile(profile, releases, claude_home, codex_home):
         for name, source in sources.items():
             if expected[name].name != source.name or release.tree_digest(expected[name]) != release.tree_digest(source):
                 raise ValueError(f'Active snapshot does not match published release: {name}')
-    sync_spec = importlib.util.spec_from_file_location('sync_profile_check', ROOT / 'scripts/sync-local-release.py')
-    sync = importlib.util.module_from_spec(sync_spec)
-    sync_spec.loader.exec_module(sync)
+    sync = load_snapshot_sync(sources['public'], 'sync_profile_check')
     prepared = sync.plugins.prepare_sources(sources, releases.parent / 'marketplaces-v2')
     sync.plugins.verify_sources(prepared, claude_home)
     _, links, changes = sync.plan_sources(sources, claude_home, codex_home)
@@ -229,9 +238,7 @@ def check_remote(repo, version, releases, claude_home, codex_home):
         expected = release.prepare(checkout, tag, directory / 'releases')
         if expected.name != metadata['commit'] or release.tree_digest(expected) != release.tree_digest(source):
             raise ValueError('Active snapshot does not match the published release')
-    sync_spec = importlib.util.spec_from_file_location('sync_local_check', ROOT / 'scripts/sync-local-release.py')
-    sync = importlib.util.module_from_spec(sync_spec)
-    sync_spec.loader.exec_module(sync)
+    sync = load_snapshot_sync(source, 'sync_local_check')
     sync.plugins.verify(source, claude_home)
     _, link_changes = sync.skills.plan(source, codex_home / 'skills')
     if link_changes:

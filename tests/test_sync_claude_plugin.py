@@ -13,6 +13,52 @@ plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)
 
 
+class PluginPackagingTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='packaging test ')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.source = self.root / 'source'
+        for name, file in (('.claude-plugin', 'plugin.json'), ('commands', 'a.md'), ('scripts', 'run.sh'),
+                           ('hooks', 'hooks.json'), ('references', 'sub/r.md')):
+            (self.source / name / file).parent.mkdir(parents=True, exist_ok=True)
+            (self.source / name / file).write_text(name)
+
+    def test_every_plugin_directory_is_packaged_and_verified(self):
+        staged = self.root / 'staged'
+        staged.mkdir()
+        plugin.copy_plugin_dirs(self.source, staged)
+        self.assertEqual(plugin.cache_differences(self.source, staged), [])
+        self.assertIn(self.source / 'hooks/hooks.json', plugin.plugin_files(self.source))
+        (staged / 'hooks/hooks.json').unlink()
+        self.assertEqual(plugin.cache_differences(self.source, staged), ['hooks/hooks.json'])
+
+    def test_missing_required_directory_fails_fast(self):
+        shutil.rmtree(self.source / 'scripts')
+        with self.assertRaises(ValueError):
+            plugin.copy_plugin_dirs(self.source, self.root / 'out')
+
+    def test_stale_stage_is_rebuilt_not_rejected(self):
+        stage = self.root / 'marketplaces/commit'
+        stage.mkdir(parents=True)
+        (stage / 'old').write_text('built by older packaging code')
+        fresh = self.root / 'fresh'
+        plugin.copy_plugin_dirs(self.source, fresh)
+        plugin.place_stage(fresh, stage)
+        self.assertEqual(plugin.cache_differences(self.source, stage), [])
+        self.assertFalse((stage / 'old').exists())
+        self.assertEqual([p.name for p in stage.parent.iterdir()], ['commit'])
+
+    def test_identical_stage_is_kept(self):
+        stage = self.root / 'marketplaces/commit'
+        stage.parent.mkdir()
+        plugin.copy_plugin_dirs(self.source, stage)
+        again = self.root / 'again'
+        plugin.copy_plugin_dirs(self.source, again)
+        plugin.place_stage(again, stage)
+        self.assertTrue(again.exists())
+
+
 @unittest.skipUnless(
     shutil.which('claude') and os.environ.get('AGENT_CONFIG_RUN_CLAUDE_E2E') == '1',
     'set AGENT_CONFIG_RUN_CLAUDE_E2E=1 to run the Claude CLI integration test',
@@ -48,12 +94,14 @@ class ClaudePluginTests(unittest.TestCase):
         self.assertNotIn(old_id, installed)
         self.assertEqual(installed[new_id][0]['version'], '2.0.1')
 
-    def test_refuses_modified_marketplace(self):
+    def test_rebuilds_modified_marketplace(self):
         source = self.source('c' * 40, '2.0.0')
         plugin.install(source, self.home, self.stages)
-        (self.stages / ('c' * 40) / 'commands/create-pr.md').write_text('changed')
-        with self.assertRaisesRegex(ValueError, 'differs from release'):
-            plugin.install(source, self.home, self.stages)
+        stage = self.stages / ('c' * 40)
+        (stage / 'commands/create-pr.md').write_text('changed')
+        shutil.rmtree(stage / 'references')
+        plugin.install(source, self.home, self.stages)
+        self.assertEqual(plugin.cache_differences(source, stage), [])
 
 
 class ClaudePluginMockTests(unittest.TestCase):
@@ -179,8 +227,10 @@ class ClaudePluginMockTests(unittest.TestCase):
         for item in prepared.values():
             self.assertTrue((item['stage'] / '.claude-plugin/plugin.json').exists())
         (prepared['private']['stage'] / 'commands/create-pr.md').write_text('modified')
-        with self.assertRaisesRegex(ValueError, 'differs from release'):
-            plugin.stage_sources(prepared)
+        plugin.stage_sources(prepared)
+        self.assertEqual(plugin.cache_differences(prepared['private']['source'], prepared['private']['stage']), [])
+        self.assertEqual((prepared['private']['stage'] / 'commands/create-pr.md').read_bytes(),
+                         (prepared['private']['source'] / 'commands/create-pr.md').read_bytes())
 
     def test_install_sources_verifies_both_before_removing_legacy(self):
         private = self.root / ('e' * 40)

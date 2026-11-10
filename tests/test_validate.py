@@ -35,6 +35,16 @@ class ValidationTests(unittest.TestCase):
         result = self.validate()
         self.assertIn('Command/skill mismatch', result.stderr)
 
+    def test_hook_path_and_unpackaged_directory_are_reported(self):
+        (self.root / 'hooks').mkdir()
+        (self.root / 'hooks/hooks.json').write_text('{"command": "${CLAUDE_PLUGIN_ROOT}/scripts/missing.sh"}')
+        self.assertIn('hook path scripts/missing.sh', self.validate().stderr)
+        (self.root / 'scripts').mkdir()
+        (self.root / 'scripts/missing.sh').write_text('#!/bin/sh\n')
+        self.assertEqual(self.validate().returncode, 0)
+        (self.root / 'newdir').mkdir()
+        self.assertIn('newdir/ is neither packaged', self.validate().stderr)
+
     def test_invalid_plugin_version_and_frontmatter_fail(self):
         (self.root / '.claude-plugin/plugin.json').write_text('{"name":"agent-config","version":"latest"}')
         self.skill.write_text('---\nname: example\ndescription: Example\nunknown: value\n---\n')

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate plugin manifests, shared skills, and their local dependencies."""
+import importlib.util
 import json
 import re
 import sys
@@ -63,6 +64,20 @@ for file in [*(root / 'commands').glob('*.md'), *(root / 'skills').glob('*/SKILL
         if not target.is_relative_to(root / 'references') or '..' in Path(reference).parts or not target.is_file():
             errors.append(f'{file}: missing or invalid reference {reference}')
 engine = Path(__file__).resolve().parent.parent
+_spec = importlib.util.spec_from_file_location('claude_plugin_packaging', engine / 'scripts/sync-claude-plugin.py')
+packaging = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(packaging)
+NOT_PACKAGED = {'adapters', 'instructions', 'settings', 'skills', 'tests', 'workflows'}
+for entry in sorted(root.iterdir()):
+    if (entry.is_dir() and not entry.name.startswith('.') and entry.name not in packaging.PLUGIN_DIRS
+            and entry.name not in NOT_PACKAGED):
+        errors.append(f'{entry.name}/ is neither packaged (PLUGIN_DIRS) nor listed in NOT_PACKAGED')
+hooks_file = root / 'hooks/hooks.json'
+if hooks_file.is_file():
+    for target in re.findall(r'\$\{CLAUDE_PLUGIN_ROOT\}/([\w./-]+)', hooks_file.read_text()):
+        top = Path(target).parts[0]
+        if top not in packaging.PLUGIN_DIRS or '..' in Path(target).parts or not (root / target).is_file():
+            errors.append(f'{hooks_file}: hook path {target} is missing or outside the packaged plugin directories')
 workflows = {file.stem for base in (engine, root) for file in (base / 'workflows').glob('*.json')}
 for file in (root / 'instructions/workflows').glob('*.md'):
     if file.stem not in workflows:
