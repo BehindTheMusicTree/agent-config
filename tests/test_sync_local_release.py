@@ -25,6 +25,8 @@ class LocalReleaseTests(unittest.TestCase):
         self.git('config', 'user.email', 'test@example.invalid')
         for directory in ('instructions', 'adapters', 'settings'):
             shutil.copytree(ROOT / directory, self.repo / directory)
+        (self.repo / 'scripts').mkdir()
+        shutil.copy(ROOT / 'scripts/graphify-fresh.sh', self.repo / 'scripts/graphify-fresh.sh')
         (self.repo / '.claude-plugin').mkdir()
         (self.repo / '.claude-plugin/plugin.json').write_text(json.dumps({'version': '1.0.0'}))
         (self.repo / 'skills/example').mkdir(parents=True)
@@ -65,6 +67,30 @@ class LocalReleaseTests(unittest.TestCase):
         self.execute()
         limit = 160000 - sync.compact.load_reserve()
         self.assertEqual((self.codex / 'config.toml').read_text(), f'model_auto_compact_token_limit = {limit}\nmodel = "x"\n')
+
+    def test_registers_graphify_hook_for_codex_and_rolls_it_back(self):
+        self.codex.mkdir()
+        (self.codex / 'hooks.json').write_text('{"hooks": {"Stop": []}}\n')
+        self.plugin.side_effect = RuntimeError('installation failed')
+        with self.assertRaises(RuntimeError):
+            self.execute()
+        self.assertEqual((self.codex / 'hooks.json').read_text(), '{"hooks": {"Stop": []}}\n')
+        self.plugin.side_effect = None
+        source = self.execute()
+        hooks = json.loads((self.codex / 'hooks.json').read_text())
+        self.assertEqual(hooks['hooks']['Stop'], [])
+        [entry] = hooks['hooks']['PreToolUse']
+        self.assertIn(f'{source}/scripts/graphify-fresh.sh', entry['hooks'][0]['command'])
+        self.assertTrue(entry['hooks'][0]['command'].endswith(' --client codex'))
+
+    def test_multisource_requires_exactly_one_hook_provider(self):
+        private = self.base / 'private'
+        (private / 'scripts').mkdir(parents=True)
+        (private / 'scripts/graphify-fresh.sh').write_text('#!/bin/sh\n')
+        with self.assertRaisesRegex(ValueError, 'Exactly one source'):
+            sync.hooks_root({'public': self.repo, 'private': private})
+        with self.assertRaisesRegex(ValueError, 'Exactly one source'):
+            sync.hooks_root({'private': self.base / 'empty'})
 
     def test_plugin_failure_restores_both_agent_files_and_links(self):
         self.claude.mkdir()

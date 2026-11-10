@@ -46,12 +46,12 @@ class GraphifyFreshTests(unittest.TestCase):
         (repo / 'graphify-out').mkdir(exist_ok=True)
         (repo / 'graphify-out/graph.json').write_text('{}')
 
-    def run_hook(self, cwd, tool='Grep', path=None):
+    def run_hook(self, cwd, tool='Grep', path=None, args=()):
         env = {**os.environ, 'PATH': f'{self.bin}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin'}
         if path is not None:
             env['PATH'] = path
         payload = json.dumps({'cwd': str(cwd), 'tool_name': tool, 'tool_input': {'pattern': 'x'}})
-        result = subprocess.run([str(SCRIPT)], input=payload, text=True, capture_output=True, env=env)
+        result = subprocess.run([str(SCRIPT), *args], input=payload, text=True, capture_output=True, env=env)
         self.assertEqual(result.returncode, 0)
         return result.stdout
 
@@ -108,6 +108,28 @@ class GraphifyFreshTests(unittest.TestCase):
         self.run_hook(self.main, tool='Bash')
         guards = [c.split('|')[1] for c in self.calls_made() if 'hook-guard' in c]
         self.assertEqual(guards, ['hook-guard read', 'hook-guard search'])
+
+    def test_codex_client_refreshes_in_silence_and_never_delegates(self):
+        codex = ('--client', 'codex')
+        for _ in range(2):
+            self.assertEqual(self.run_hook(self.main, tool='Bash', args=codex), '')
+            self.wait_for_idle(self.main)
+        self.assertEqual(self.run_hook(self.main, tool='Bash', args=codex), '')
+        calls = self.calls_made()
+        self.assertEqual(len([c for c in calls if '|update .|' in c]), 1)
+        self.assertEqual([c for c in calls if 'hook-guard' in c], [])
+        self.assertFalse((self.main / 'graphify-out/.notified-key').exists())
+        self.assertTrue((self.main / 'graphify-out/.fresh-key').exists())
+
+    def test_explicit_claude_client_keeps_the_nudge(self):
+        self.graph(self.main)
+        out = self.run_hook(self.main, args=('--client', 'claude'))
+        self.assertIn('refreshing in the background', json.loads(out)['hookSpecificOutput']['additionalContext'])
+
+    def test_unknown_client_does_nothing(self):
+        self.graph(self.main)
+        self.assertEqual(self.run_hook(self.main, args=('--client', 'other')), '')
+        self.assertEqual(self.calls_made(), [])
 
     def test_lock_prevents_duplicate_refresh_and_stale_lock_is_cleared(self):
         self.graph(self.main)

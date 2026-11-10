@@ -4,6 +4,8 @@
 
 ### Added
 
+- Codex graphify freshness: release synchronization registers `scripts/graphify-fresh.sh --client codex` as a managed `PreToolUse` hook in `~/.codex/hooks.json` (`scripts/sync-codex-hooks.py`), preserving other hooks and rolling back with the rest of the synchronization; `--client codex` refreshes the graph in silence, without injected context or `graphify hook-guard`
+- The Codex adapter points the agent to the installed graphify skill for codebase questions when a graph exists
 - `create-pr-and-fix-ci` reviews each CI fix on its own delta (`<last reviewed SHA>..HEAD`) before pushing it, with mechanical exemptions reported, and its output lists the re-reviews
 - Review findings carry a provenance: `pre-existing` bugs are reported separately and do not block the PR
 - Bug-fix PRs are checked for root cause and other occurrences of the same bug class

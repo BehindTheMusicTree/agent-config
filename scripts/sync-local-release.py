@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize Codex skills, global instructions and the derived Codex compaction threshold from a local release tag."""
+"""Synchronize Codex skills, global instructions, the derived Codex compaction threshold and the Codex graphify hook from a local release tag."""
 import argparse
 import importlib.util
 import os
@@ -22,6 +22,7 @@ skills = load('codex_skills', 'sync-codex-skills.py')
 instructions = load('global_instructions', 'install-instructions.py')
 plugins = load('claude_plugin', 'sync-claude-plugin.py')
 compact = load('compact_limit', 'sync-compact-limit.py')
+codex_hooks = load('codex_hooks', 'sync-codex-hooks.py')
 
 
 def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sources=()):
@@ -35,6 +36,7 @@ def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sourc
         changes.extend(instructions.prepare(home, instructions.render_sources(sources, agent)))
     if compact.claude_window(claude_home) is not None:
         changes.extend(compact.prepare(claude_home, codex_home, compact_root(sources)))
+    changes.extend(codex_hooks.prepare(codex_home, hooks_root(sources)))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     return desired, link_changes, changes
@@ -48,6 +50,14 @@ def compact_root(sources):
     return roots[0]
 
 
+def hooks_root(sources):
+    """Return the single source that ships the graphify freshness hook."""
+    roots = [root for root in sources.values() if (root / codex_hooks.SCRIPT).is_file()]
+    if len(roots) != 1:
+        raise ValueError(f'Exactly one source must provide {codex_hooks.SCRIPT}, found {len(roots)}')
+    return roots[0]
+
+
 def synchronize_source(source, claude_home, codex_home, adopt_from=None):
     destination = codex_home / 'skills'
     desired, link_changes = skills.plan(source, destination, adopt_from)
@@ -58,6 +68,7 @@ def synchronize_source(source, claude_home, codex_home, adopt_from=None):
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         changes.extend(instructions.prepare(home, instructions.render(source, agent)))
     changes.extend(compact.prepare(claude_home, codex_home, source))
+    changes.extend(codex_hooks.prepare(codex_home, source))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     _apply_plan(destination, desired, link_changes, changes,
