@@ -42,7 +42,7 @@ Repeat, capped at 5 iterations:
      git merge origin/<base-branch>
      ```
      Resolve the conflicts like any other merge conflict (see the root CLAUDE.md guidance on not discarding work), commit the merge, and push. Do not use `git merge -X ours/theirs` or force-push over the branch to dodge the conflict.
-3. If step 1 or step 2 produced a fix, commit and push it, then go back to step 1 — a new commit resets both CI and mergeability computation.
+3. If step 1 or step 2 produced a fix, commit it locally and review it before pushing, as the policy's **Handoff and reuse** requires: only the delta `<last reviewed SHA>..HEAD` plus its direct interactions, at the PR's depth. Fixes to production code, tests that change an assertion, configuration, dependencies and non-trivial conflict resolutions are reviewed. Exempt, with the reason reported: a re-run without a commit, formatting or lint fixes applied by the project's own tool, a deterministic regeneration verified by its check, and a clean merge of the base branch (review only its conflict resolutions). A confirmed `introduced` finding blocks the push: fix it, then review only the new delta, at most twice per push; report `pre-existing` findings separately without fixing them. Record the new reviewed SHA, push, then go back to step 1 — a new commit resets both CI and mergeability computation.
 4. If nothing was fixed in either step but a check is still failing or the PR is still not mergeable (e.g. it needs input only the user can give, or it's flaky and won't recover), stop and report the state instead of looping again.
 5. If the 5-iteration cap is hit before both exit conditions are met, stop and report the state instead of continuing indefinitely.
 
@@ -58,7 +58,8 @@ Keep this terse:
 1. **PR URL** and selected intent/depth
 2. **Review findings** (creation or existing-PR inspection) — confirmed findings, then rejected ones with the reason, or "none"
 3. **CI summary** — per iteration, which checks failed and what fix was pushed, or "all green from the start"
-4. **Mergeable state** — per iteration, `mergeable`/`mergeStateStatus` seen, and any conflicts resolved, or "mergeable from the start"
-5. **Additional issues found** — things CI didn't catch, bullet list, or "none"
-6. **Auto-merge** — enabled, skipped (reason), or already merged
-7. **Final state** — clean exit, or which cap was hit and what's still outstanding
+4. **Re-reviews** — per iteration, the delta reviewed and its findings, or the exemption and its reason, or "no fix pushed"
+5. **Mergeable state** — per iteration, `mergeable`/`mergeStateStatus` seen, and any conflicts resolved, or "mergeable from the start"
+6. **Additional issues found** — things CI didn't catch, bullet list, or "none"
+7. **Auto-merge** — enabled, skipped (reason), or already merged
+8. **Final state** — clean exit, or which cap was hit and what's still outstanding
