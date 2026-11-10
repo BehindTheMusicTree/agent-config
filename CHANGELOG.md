@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-11-10
+
 ### Fixed
 
 - Installing a release that adds plugin content (such as `hooks/`) no longer ships an incomplete plugin when the launching checkout is older than the release: `--sync-local` and `--check` now run the installer from the verified release snapshot instead of the checkout
