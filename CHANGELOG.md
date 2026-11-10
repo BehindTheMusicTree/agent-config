@@ -11,6 +11,7 @@
 
 ### Changed
 
+- This repository now ignores `graphify-out/`, so the graphify freshness hook keeps its graph up to date here
 - `create-pr` looks for the PR template locally, then in the organization's `.github` repo (which `--body-file` otherwise bypasses), then falls back to a built-in template with Summary, Changes, Test plan, Screenshots, Risk, How to revert and Deployment notes
 
 ## [2.5.1] - 2026-11-10
