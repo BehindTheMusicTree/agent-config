@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- `create-pr-and-fix-ci` reviews each CI fix on its own delta (`<last reviewed SHA>..HEAD`) before pushing it, with mechanical exemptions reported, and its output lists the re-reviews
+- Review findings carry a provenance: `pre-existing` bugs are reported separately and do not block the PR
+- Bug-fix PRs are checked for root cause and other occurrences of the same bug class
+- A confirmed finding that exposes a missing or outdated convention, or recurs, now proposes a durable fix (instruction line, rule, lint or check)
+
+### Changed
+
+- `create-pr` looks for the PR template locally, then in the organization's `.github` repo (which `--body-file` otherwise bypasses), then falls back to a built-in template with Summary, Changes, Test plan, Screenshots, Risk, How to revert and Deployment notes
+
 ## [2.5.1] - 2026-11-10
 
 ### Fixed

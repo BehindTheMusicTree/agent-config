@@ -51,14 +51,22 @@ Check whether CI enforces tests (a required test job or coverage threshold). If 
 
 ## Step 6 — Body
 
-Use the first template found: `.github/pull_request_template.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/PULL_REQUEST_TEMPLATE/*.md`, `docs/pull_request_template.md`. Fill every section; mark N/A sections as such rather than deleting the heading.
-
-No template:
+Use the first template found, in this order:
+1. Local: `.github/pull_request_template.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/PULL_REQUEST_TEMPLATE/*.md`, `docs/pull_request_template.md`.
+2. Organization: the owner's `.github` repo, which GitHub applies to repos without a local template. `gh pr create --body-file` bypasses GitHub's automatic templates, so look it up explicitly: `gh api -H "Accept: application/vnd.github.raw+json" repos/<owner>/.github/contents/<path>` for `.github/pull_request_template.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `pull_request_template.md`, `PULL_REQUEST_TEMPLATE.md`, `docs/pull_request_template.md`, or a file in `.github/PULL_REQUEST_TEMPLATE/` (list the directory first). A 404 means there is none; report any other error instead of falling back silently.
+3. Built-in, when neither lookup found a template:
 ```
 ## Summary
 ## Changes
 ## Test plan
+## Screenshots
+## Risk
+## How to revert
+## Deployment notes
 ```
+Test plan: commands run and results. Screenshots: UI changes only, before/after. Risk: intent and depth with the reason, plus breaking changes. How to revert: revert of the merge, flag, down migration or deployment rollback. Deployment notes: migrations, environment, deployment order, target branch under Gitflow.
+
+Fill every section; mark N/A sections as such rather than deleting the heading.
 
 ## Step 7 — Title
 
@@ -85,7 +93,7 @@ Refresh the context after tests/docs, edits, or a base merge so the PR text desc
 
 ## Step 9a — Review the final state
 
-Invoke `$review` for the final code and integration state, passing the selected intent/depth, pinned range and applicable evidence. Reuse an existing review only when its range and relevant inputs still apply; disclose any unavailable independent-review capability. Revisit changed hunks/interactions after post-review edits. Incorporate intent-specific evidence and limitations into the PR body. Do not duplicate a review just because this skill was called by another workflow.
+Invoke `$review` for the final code and integration state, passing the selected intent/depth, pinned range and applicable evidence. Reuse an existing review only when its range and relevant inputs still apply; disclose any unavailable independent-review capability. Revisit changed hunks/interactions after post-review edits. Incorporate intent-specific evidence and limitations into the PR body. Do not duplicate a review just because this skill was called by another workflow. If a confirmed finding exposes a missing or outdated convention, or recurs in this PR, propose the policy's durable fix as in Step 4 and wait for approval.
 
 ## Step 10 — Push and open
 

@@ -20,7 +20,13 @@ Low-risk intent-specific exceptions below require the stated evidence. Do not co
 
 For standard/deep, delegate the independent review only when authorized and available. The reviewer gets the exact final range, project root, intent-specific facts, project instructions and focused questions, not the author's conversation or justification. Claude: a fresh general-purpose Sonnet subagent, not a fork. Codex: an available fresh reviewer under the client's supported settings; do not invent provider overrides. If independent execution is unavailable, perform the review in the current session, disclose that limitation and respect any project requirement for an independent reviewer.
 
-Reviewer is read-only and reports concrete failure scenarios with file/line evidence, not style nits. Verify findings; preserve confirmed and rejected findings with brief reasons. Do not fix unrelated issues without authorization. A specialist is not another full review of the same diff. If post-review edits invalidate findings or validation, revisit the changed hunks and interactions; repeat the full review only when their scope warrants it.
+Reviewer is read-only and reports concrete failure scenarios with file/line evidence, not style nits. Verify findings; preserve confirmed and rejected findings with brief reasons. Do not fix unrelated issues without authorization.
+
+Each finding carries a severity (`important` or `minor`) and a provenance: `introduced` when the diff adds or worsens the bug, `pre-existing` when it was already there and the diff neither introduces nor aggravates it. Report `pre-existing` findings in a separate section: they do not block the PR and are not fixed without authorization.
+
+When a confirmed finding comes from a convention that is missing or outdated in the project's instructions, or the same kind of finding recurs within the PR, propose the smallest durable fix: a line in CLAUDE.md or AGENTS.md, a scoped rule, a lint rule or a check. Propose only; apply it with approval, like any other instruction change.
+
+A specialist is not another full review of the same diff. If post-review edits invalidate findings or validation, revisit the changed hunks and interactions; repeat the full review only when their scope warrants it.
 
 ## Intent-specific checks
 
@@ -31,6 +37,8 @@ Review behavior, callers, error paths, tests and documentation. Apply depth from
 **Test level.** For each non-trivial changed behavior, name the lowest test level able to observe it. A behavior that depends on real navigation, browser history, framework-managed document state or real rendering cannot be observed in a simulated DOM. If no test at that level covers it, fill the gap in this PR, including the missing level's tooling and CI job when the project does not have them yet; that decision is then taken, so the gate question in `create-pr` need not be asked again.
 
 **Documentation.** Identify the document that owns each changed contract. If it is stale, or missing while the project documents that kind of element, update or create it in this PR.
+
+**Bug fixes.** When the PR fixes a bug, check that it addresses the root cause at the layer that owns the invariant, not only the symptom, and search for other occurrences of the same class of bug. A fix that treats only the symptom is an `important` finding.
 
 A manual check, a "still to do" note or a limitation in the PR body does not close a test or documentation gap. If filling one requires something only the user can provide, stop and ask before opening a ready PR.
 
@@ -62,6 +70,8 @@ After `create-pr` opens or updates a PR, enable auto-merge on it unless the user
 
 ## Handoff and reuse
 
-`create-pr` owns coverage, intent checks, final review and PR body. `create-pr-and-fix-ci` calls it once and then owns the CI/mergeability loop. `release` supplies explicit intent/base for its release and back-merge PRs. Pass the selection, exact reviewed state, validation commands/results and limitations through nested calls; do not spawn another reviewer merely because another skill starts. Starting with an existing PR skips creation but still requires resolving its current intent/base/head and checking any missing evidence before claiming readiness.
+`create-pr` owns coverage, intent checks, final review and PR body. `create-pr-and-fix-ci` calls it once and then owns the CI/mergeability loop. `release` supplies explicit intent/base for its release and back-merge PRs. Pass the selection, exact reviewed state, validation commands/results and limitations through nested calls; do not spawn another reviewer merely because another skill starts.
+
+Approval is per commit: every commit pushed after the initial review (for example by the `create-pr-and-fix-ci` loop) is reviewed on its own delta, `<last reviewed SHA>..HEAD` plus its direct interactions, before the push, at the PR's depth (a fresh independent reviewer for standard/deep, the principal session for light). Exempt, with the reason reported: a re-run without a commit, formatting or lint fixes applied by the project's own tool, a deterministic regeneration verified by its check, and a clean merge of the base branch (review only its conflict resolutions). A confirmed `introduced` finding blocks the push: fix it and review only the new delta, at most twice per push. Report `pre-existing` findings separately without fixing them. Starting with an existing PR skips creation but still requires resolving its current intent/base/head and checking any missing evidence before claiming readiness.
 
 Reuse validation only if all relevant inputs (including dirty edits, dependencies, environment and configuration) still match and project rules allow it. The context file and validation log paths alone do not prove this. New tests must run. Head, base or integration changes require reassessment. Keep summaries bounded and raw evidence available; mandatory checks apply at every depth. Report the chosen intent/depth, evidence, findings and remaining limitations with the PR URL.
