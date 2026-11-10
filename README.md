@@ -64,9 +64,9 @@ move a tag for recovery. Plugin publication and local installation remain separa
 
 ## Graphify freshness hook
 
-The Claude plugin ships a `PreToolUse` hook (`hooks/hooks.json`, matcher `Bash|Grep|Read|Glob`) that runs `scripts/graphify-fresh.sh`. It only acts when `graphify` is on `PATH` and the repository's main checkout has `graphify-out/graph.json`; every other repository is untouched. It never blocks a tool call.
+The Claude plugin ships a `PreToolUse` hook (`hooks/hooks.json`, matcher `Bash|Grep|Read|Glob`) that runs `scripts/graphify-fresh.sh`. It only acts when `graphify` is on `PATH` and the repository ignores `graphify-out/` in a versioned `.gitignore` (`git check-ignore graphify-out/graph.json`); every other repository is untouched. A repository that opts in without a graph gets its first one built in the background, with a one-time notice to use `rg`/`Read` meanwhile. It never blocks a tool call.
 
-- A linked worktree without `graphify-out/` is seeded from the main checkout (graph, manifest, cache, report; not dated backups or `graph.html`).
+- A linked worktree without `graphify-out/` is seeded from the main checkout when it has a graph (graph, manifest, cache, report; not dated backups or `graph.html`).
 - The freshness key is `HEAD` plus a hash of the uncommitted diff and untracked files. When it matches `graphify-out/.fresh-key`, the hook delegates to `graphify hook-guard search|read`.
 - Otherwise it starts one detached `graphify update .` (code-only, no backup dirs, guarded by `graphify-out/.refresh.lock`, stale after 10 minutes), logs to `graphify-out/refresh.log`, and tells the agent once per key to use `rg`/`Read` meanwhile.
 
