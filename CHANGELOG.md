@@ -4,6 +4,7 @@
 
 ### Changed
 
+- `handoff` writes the recap with a Bash heredoc, so overwriting a previous recap no longer fails and forces a read of the old file, and its **Pointers** list only what the first remaining step needs
 - `handoff` assumes the recap is resumed right away: it collects repository state in one read-only git call shared with the save step, no longer verifies each claim (including PR status) separately, and no longer tells the next session to re-verify state, saving tool round trips in the long session that writes it
 - `handoff` targets a resume directory, the checkout of the feature in progress or of the next feature's repository: the recap is saved there as `agent-handoff-<repo>-<branch>.md`, and when that directory is not the current one the closing line says to start the new session there (`/exit`, then `cd <dir> && claude`; `codex -C <dir>`) so it loads that project's instructions
 
