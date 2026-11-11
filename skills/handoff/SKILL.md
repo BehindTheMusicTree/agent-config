@@ -15,23 +15,23 @@ The resume directory is the absolute path of the checkout where the next session
 
 ## Step 2 — Collect state
 
-A new session resumes from the recap right after it is written, so take decisions, PR numbers and remaining work from this session and run no other state check. Collect the repository state in one Bash call, adding `git -C <resume directory> status --short` when the resume directory is not the current working directory:
+A new session resumes from the recap right after it is written, so take decisions, PR numbers and remaining work from this session and run no other state check. Collect the repository state in one Bash call, adding `git status --short` and `git worktree list` for the current working directory when it is not the resume directory:
 
 ```bash
 git -C <resume directory> rev-parse --path-format=absolute --git-common-dir
 git -C <resume directory> branch --show-current
 git -C <resume directory> rev-parse --short HEAD
-git status --short
-git worktree list
+git -C <resume directory> status --short
+git -C <resume directory> worktree list
 ```
 
-`<repo>` is the name of the directory that contains the printed common git directory.
+`<repo>` is the name of the repository's main checkout: the last component of the first path printed by `git -C <resume directory> worktree list`.
 
 ## Step 3 — Write the recap
 
 At most about 30 lines, self-contained, in the language of the user's latest message. The recap exists to let the next session continue: spend the lines on context and remaining work, not on history.
 
-Start with a header line: date, `<repo>`, branch, short HEAD SHA and resume directory, all from Step 2. Then these sections:
+Start with a header line: date, `<repo>`, branch and short HEAD SHA from Step 2, and the resume directory. Then these sections:
 
 - **Context**: concise — the goal in one line, then only the decisions, constraints and facts the next session needs to continue (for example "no release unless asked", a chosen approach, a rejected alternative).
 - **Remaining**: the core of the recap — ordered, actionable next steps, each specific enough to execute without rereading this session (files, commands, PR numbers, open questions for the user).
@@ -49,6 +49,6 @@ Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git direct
 
 When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with one line only:
 
-- "Start a new session with `codex -C <resume directory>` and ask it to read `<absolute path of the file written in Step 4>`."
+- "Start a new session with `codex -C '<resume directory>'` and ask it to read `<absolute path of the file written in Step 4>`."
 
-When no file was written, print the recap as a fenced block instead, followed by: "Start a new session and paste the block."
+When no file was written, print the recap as a fenced block instead, followed by: "Start a new session with `codex -C '<resume directory>'` and paste the block."
