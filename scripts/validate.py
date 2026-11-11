@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -68,9 +69,16 @@ _spec = importlib.util.spec_from_file_location('claude_plugin_packaging', engine
 packaging = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(packaging)
 NOT_PACKAGED = {'adapters', 'instructions', 'settings', 'skills', 'tests', 'workflows'}
+
+
+def git_ignored(path):
+    # Local tool output such as graphify-out/ is gitignored and never part of a checkout.
+    return subprocess.run(['git', '-C', str(root), 'check-ignore', '-q', str(path)]).returncode == 0
+
+
 for entry in sorted(root.iterdir()):
     if (entry.is_dir() and not entry.name.startswith('.') and entry.name not in packaging.PLUGIN_DIRS
-            and entry.name not in NOT_PACKAGED):
+            and entry.name not in NOT_PACKAGED and not git_ignored(entry)):
         errors.append(f'{entry.name}/ is neither packaged (PLUGIN_DIRS) nor listed in NOT_PACKAGED')
 hooks_file = root / 'hooks/hooks.json'
 if hooks_file.is_file():
