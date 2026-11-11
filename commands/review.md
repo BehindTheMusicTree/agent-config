@@ -2,8 +2,6 @@
 description: Read-only correctness review of a branch, commit range, or existing pull request.
 ---
 
-If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/review.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Review **$ARGUMENTS**. Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` for risk depth and the reviewer contract.
 
 Review the user-specified branch, `base..head` range, or PR number/URL; if omitted, review the current branch against its detected base. Resolve a PR's repository, base and head using `gh pr view`; fetch missing refs when necessary. Pin base, merge base and head SHAs, and inspect the committed diff and relevant callers, tests and project instructions. Report dirty worktree changes separately; do not silently include them in a committed-range review. For a release, also inspect the delivery range under the policy. If a range cannot be resolved, report the limitation rather than guessing.

@@ -14,10 +14,6 @@
       "shared": "---\n"
     },
     {
-      "claude": "\nIf `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/refresh-worktree.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n",
-      "codex": "\nIf `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/refresh-worktree.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n"
-    },
-    {
       "claude": "",
       "codex": "\nResolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.\n"
     },

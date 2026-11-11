@@ -14,10 +14,6 @@
       "shared": "---\n"
     },
     {
-      "claude": "\nIf `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/create-pr-and-fix-ci.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n",
-      "codex": "\nIf `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/create-pr-and-fix-ci.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.\n"
-    },
-    {
       "claude": "",
       "codex": "\nResolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.\n"
     },
@@ -25,8 +21,8 @@
       "shared": "\nOpen a PR for the current branch, then keep fixing failing CI checks and mergeability conflicts until every check passes and the PR can merge.\n\nArguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--base` from the shared PR policy. `create-pr` enables auto-merge per the policy's **Auto-merge** section; pass `--no-auto-merge` through to skip it. Pushes made while fixing CI keep it enabled.\n\n## Steps 1–2 — Select context and create or inspect the PR\n\n"
     },
     {
-      "claude": "Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, then continue to Step 3. Do not create another PR.\n",
-      "codex": "Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, then continue to Step 3. Do not create another PR.\n"
+      "claude": "Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, and enable auto-merge right away if it is off and the user did not opt out, then continue to Step 3. Do not create another PR.\n",
+      "codex": "Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, and enable auto-merge right away if it is off and the user did not opt out, then continue to Step 3. Do not create another PR.\n"
     },
     {
       "shared": "\n"

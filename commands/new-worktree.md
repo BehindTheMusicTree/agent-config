@@ -2,8 +2,6 @@
 description: Create a git worktree and branch for a new task, then copy gitignored env files into it so the worktree is immediately runnable.
 ---
 
-If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/new-worktree.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Create a new git worktree with its own branch, then populate it with the same gitignored env files (`.env`, `.env.local`, etc.) the main worktree already has, so it's runnable without a manual setup pass.
 
 The branch name is: **$ARGUMENTS**

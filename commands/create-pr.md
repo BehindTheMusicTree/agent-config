@@ -2,8 +2,6 @@
 description: Produce a PR description for the current branch, push it, and open the PR — including a changelog entry if needed and a proposed merge title.
 ---
 
-If `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-config/workflow-policies/create-pr.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Write a PR description for the current branch, push, and open the PR. Optional `--draft`: **$ARGUMENTS** — if present, add `--draft` in Step 10. `--no-auto-merge` skips Step 11.
 
 ## PR intent and review depth

@@ -3,8 +3,6 @@ name: create-pr-and-fix-ci
 description: Open a PR for the current branch (with review depth matched to risk), then loop on failing CI checks and mergeability until everything is clean.
 ---
 
-If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/create-pr-and-fix-ci.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
 Open a PR for the current branch, then keep fixing failing CI checks and mergeability conflicts until every check passes and the PR can merge.
@@ -13,7 +11,7 @@ Arguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--b
 
 ## Steps 1–2 — Select context and create or inspect the PR
 
-Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, then continue to Step 3. Do not create another PR.
+Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, and enable auto-merge right away if it is off and the user did not opt out, then continue to Step 3. Do not create another PR.
 
 Otherwise invoke `$create-pr` once, forwarding intent/depth/base and existing evidence (ready for review, without `--draft`). It owns coverage, intent-specific checks and final review. Capture the returned PR number, selected profile, reviewed state and validation evidence. Do not spawn a second preliminary reviewer in this wrapper.
 

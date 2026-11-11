@@ -4,8 +4,15 @@
 
 ### Changed
 
+- `handoff` writes the recap with a Bash heredoc, so overwriting a previous recap no longer fails and forces a read of the old file, and its **Pointers** list only what the first remaining step needs
 - `handoff` assumes the recap is resumed right away: it collects repository state in one read-only git call shared with the save step, no longer verifies each claim (including PR status) separately, and no longer tells the next session to re-verify state, saving tool round trips in the long session that writes it
 - `handoff` targets a resume directory, the checkout of the feature in progress or of the next feature's repository: the recap is saved there as `agent-handoff-<repo>-<branch>.md`, and when that directory is not the current one the closing line says to start the new session there (`/exit`, then `cd <dir> && claude`; `codex -C <dir>`) so it loads that project's instructions
+- The PR policy states that invoking `create-pr` authorizes its single independent reviewer (and `create-pr-and-fix-ci` its delta re-reviews), that a reviewer never delegates further, and that an unavailable independent reviewer stops the workflow when the project requires one; it allows `gh pr merge --admin` only when a required review on a solo-maintained repository is the last blocker, after every check has passed
+- `create-pr-and-fix-ci` enables auto-merge right away when resuming an existing PR without it; `cleanup-session` runs only once the session's PR is merged; `release` places a release requested in a multi-PR plan once, at the end
+
+### Removed
+
+- **Breaking:** workflow policies. Workflows no longer read `<agent home>/agent-config/workflow-policies/<workflow>.md`, saving a tool call at each start; their rules now live in the workflows and the PR policy. An instruction source containing `instructions/workflows/` makes `install-instructions.py` and `validate.py` fail, and reinstalling or restoring removes the policies a previous version installed
 
 ### CI
 

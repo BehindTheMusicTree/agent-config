@@ -3,8 +3,6 @@ name: refresh-worktree
 description: Reuse the current git worktree for a new feature — stop any dev server still running for it, reset onto the integration branch, create the new branch, then scan for available ports and start the project's dev server(s), reporting the URLs.
 ---
 
-If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/refresh-worktree.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
 Move the current worktree from an already-merged feature branch to a new one, without removing/re-adding the worktree directory or reinstalling dependencies, then serve the project again:

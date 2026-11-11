@@ -3,8 +3,6 @@ name: handoff
 description: Write a self-contained recap of the current session, save it to a file outside the working tree so a fresh session can resume after /clear or in a new session.
 ---
 
-If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/handoff.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Produce a handoff recap so the user can drop this session's context and continue in a fresh one. Strictly read-only apart from the single recap file below: no commits and no other edits.
 
 Optional focus: **user-provided arguments** — narrows the recap to that topic. Empty = whole session.
@@ -37,13 +35,13 @@ Start with a header line: date, `<repo>`, branch and short HEAD SHA from Step 2,
 - **Remaining**: the core of the recap — ordered, actionable next steps, each specific enough to execute without rereading this session (files, commands, PR numbers, open questions for the user).
 - **State**: worktrees and branches still alive, uncommitted changes, running servers.
 - **Done**: very terse — one short line per item with its PR number or SHA, no description of how it was done.
-- **Pointers**: plan files and docs to reread.
+- **Pointers**: only the plan files and docs the first **Remaining** step needs; the next session rereads nothing else.
 
 Never include secret values, tokens, passwords or credentials; reference secrets by name or file path only. Leave out exploration history, tool output, and anything already in the repo or in the project instructions.
 
 ## Step 4 — Save
 
-Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git directory printed in Step 2, overwriting any previous recap for that name. `<name>` is the resume directory's branch; when `git branch --show-current` printed nothing, HEAD is detached and `<name>` is `detached-<short SHA>`. In both `<repo>` and `<name>`, replace every character outside `[A-Za-z0-9._-]` with `-`. Keep the absolute path for Step 5. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, or when the write fails, no file exists: say so and print the recap in Step 5.
+Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git directory printed in Step 2, overwriting any previous recap for that name. Write it with one Bash heredoc (`cat > '<path>' <<'AGENT_HANDOFF_EOF'`), not a file-editing tool: such tools refuse to overwrite a file not read in this session, which would cost a failed call and a read of the old recap. `<name>` is the resume directory's branch; when `git branch --show-current` printed nothing, HEAD is detached and `<name>` is `detached-<short SHA>`. In both `<repo>` and `<name>`, replace every character outside `[A-Za-z0-9._-]` with `-`. Keep the absolute path for Step 5. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, or when the write fails, no file exists: say so and print the recap in Step 5.
 
 ## Step 5 — Report
 
