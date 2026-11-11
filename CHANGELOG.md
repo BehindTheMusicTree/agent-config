@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-11
+
 ### Changed
 
 - `handoff` writes the recap with a Bash heredoc, so overwriting a previous recap no longer fails and forces a read of the old file, and its **Pointers** list only what the first remaining step needs
