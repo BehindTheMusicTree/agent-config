@@ -74,14 +74,14 @@ class InstructionsTests(unittest.TestCase):
 
     def private_source(self, global_text='Private working agreements', policies=None):
         private = self.base / 'private'
-        (private / 'instructions/workflows').mkdir(parents=True)
+        (private / 'instructions/rules').mkdir(parents=True)
         (private / 'instructions/global.md').write_text(global_text)
-        (private / 'instructions/rules').mkdir()
         (private / 'instructions/rules/internal.md').write_text('Private rule')
         (private / 'instructions/scopes.json').write_text(json.dumps({
             'internal': {'source': 'instructions/rules/internal.md', 'when': 'Working on internal code'},
         }))
         for name, text in (policies or {}).items():
+            (private / 'instructions/workflows').mkdir(exist_ok=True)
             (private / f'instructions/workflows/{name}.md').write_text(text)
         return private
 
@@ -99,26 +99,42 @@ class InstructionsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Only the first source'):
             installer.render_sources(sources, 'claude')
 
-    def test_workflow_policies_install_for_both_agents_and_restore(self):
+    def test_workflow_policy_sources_are_rejected(self):
         sources = {'public': ROOT, 'private': self.private_source(policies={'create-pr': 'Merge with --admin.'})}
-        relative = installer.POLICY_PATH.format(name='create-pr')
         for agent in ('claude', 'codex'):
-            self.assertIn('Merge with --admin.', installer.render_sources(sources, agent)[relative])
-        self.install(installer.render_sources(sources, 'claude'))
-        self.assertIn('Merge with --admin.', (self.home / relative).read_text())
+            with self.assertRaisesRegex(ValueError, 'Workflow policies are no longer supported'):
+                installer.render_sources(sources, agent)
+
+    def legacy_policy_install(self):
+        relative = 'agent-config/workflow-policies/create-pr.md'
+        (self.home / relative).parent.mkdir(parents=True)
+        (self.home / relative).write_text('Merge with --admin.')
+        (self.home / installer.STATE).write_text(json.dumps({'version': 1, 'files': {
+            relative: {'installed_sha256': installer.digest('Merge with --admin.'), 'original': None},
+        }}))
+        return relative
+
+    def test_reinstall_removes_legacy_workflow_policy(self):
+        relative = self.legacy_policy_install()
+        outputs = installer.render(ROOT, 'claude')
+        self.install(outputs)
+        self.assertFalse((self.home / relative).exists())
+        self.assertNotIn(relative, json.loads((self.home / installer.STATE).read_text())['files'])
+        self.assertEqual(installer.prepare(self.home, outputs), [])
+
+    def test_restore_removes_legacy_workflow_policy(self):
+        relative = self.legacy_policy_install()
         installer.apply(installer.prepare(self.home, {}, restore=True))
         self.assertFalse((self.home / relative).exists())
+        self.assertFalse((self.home / installer.STATE).exists())
 
-    def test_workflow_policy_for_unknown_workflow_fails(self):
-        sources = {'public': ROOT, 'private': self.private_source(policies={'missing': 'Text'})}
-        with self.assertRaisesRegex(ValueError, 'unknown workflow'):
-            installer.render_sources(sources, 'claude')
+    def test_legacy_workflow_policy_cannot_be_installed(self):
+        with self.assertRaisesRegex(ValueError, 'Unexpected managed path'):
+            installer.prepare(self.home, {'agent-config/workflow-policies/create-pr.md': 'Text'})
 
-    def test_every_workflow_reads_its_policy(self):
-        for file in (ROOT / 'workflows').glob('*.json'):
-            relative = installer.POLICY_PATH.format(name=file.stem)
-            self.assertIn(relative, (ROOT / 'commands' / f'{file.stem}.md').read_text())
-            self.assertIn(relative, (ROOT / 'skills' / file.stem / 'SKILL.md').read_text())
+    def test_no_workflow_reads_policies(self):
+        for file in [*(ROOT / 'workflows').glob('*.json'), *(ROOT / 'commands').glob('*.md'), *(ROOT / 'skills').glob('*/SKILL.md')]:
+            self.assertNotIn('workflow-policies', file.read_text(), file)
 
     def test_first_install_backup_reinstall_update_and_restore(self):
         original = '# Personal instructions\n'

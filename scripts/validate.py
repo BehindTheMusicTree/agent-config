@@ -86,12 +86,8 @@ if hooks_file.is_file():
         top = Path(target).parts[0]
         if top not in packaging.PLUGIN_DIRS or '..' in Path(target).parts or not (root / target).is_file():
             errors.append(f'{hooks_file}: hook path {target} is missing or outside the packaged plugin directories')
-workflows = {file.stem for base in (engine, root) for file in (base / 'workflows').glob('*.json')}
-for file in (root / 'instructions/workflows').glob('*.md'):
-    if file.stem not in workflows:
-        errors.append(f'{file}: workflow policy must target an existing workflow')
-    elif not file.read_text().strip():
-        errors.append(f'{file}: empty workflow policy')
+if (root / 'instructions/workflows').exists():
+    errors.append(f'{root / "instructions/workflows"}: workflow policies are no longer supported; merge them into the workflow sources')
 if errors:
     raise SystemExit('\n'.join(errors))
 print('Manifests, commands, skills, and local references validated')

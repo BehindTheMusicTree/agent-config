@@ -3,8 +3,6 @@ name: release
 description: Detect the project's branching model (strict Gitflow vs GitHub flow), verify the current branch follows it, and drive the release forward to a PR against main.
 ---
 
-If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/release.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
 Detect the repo's git flow, check the current branch against it, open the PR to `main`, and make sure a version release is actually cut. A merged PR is not a release.
@@ -12,7 +10,7 @@ Detect the repo's git flow, check the current branch against it, open the PR to 
 
 Prepare a reviewed release PR, then follow its tag, required publications and declared deployments. A merged PR alone does not establish publication. Read `references/release-contract.md` from this plugin/skill repository for the CI/legacy contract and recovery rules.
 
-A release must be explicitly requested in this conversation. Planning, fixing release infrastructure or preparing a migration does not authorize a bump, tag, package publish or production deployment. Invoking this release workflow is a release request; `--auto` is valid only under that authorization. Honor existing session authorization instead of repeating confirmation gates.
+A release must be explicitly requested in this conversation. When a release is requested as part of a multi-PR plan, it comes once, at the end. Planning, fixing release infrastructure or preparing a migration does not authorize a bump, tag, package publish or production deployment. Invoking this release workflow is a release request; `--auto` is valid only under that authorization. Honor existing session authorization instead of repeating confirmation gates.
 
 Optional context: **user-provided arguments** (version/bump, optionally `--auto`).
 

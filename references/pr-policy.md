@@ -18,7 +18,7 @@ Run `pr-context.py` with these arguments and inspect the relevant hunks. Its `re
 
 Low-risk intent-specific exceptions below require the stated evidence. Do not count lines to assign depth. A version manifest or lockfile change is not a prose edit.
 
-For standard/deep, delegate the independent review only when authorized and available. The reviewer gets the exact final range, project root, intent-specific facts, project instructions and focused questions, not the author's conversation or justification. Claude: a fresh general-purpose Sonnet subagent, not a fork. Codex: an available fresh reviewer under the client's supported settings; do not invent provider overrides. If independent execution is unavailable, perform the review in the current session, disclose that limitation and respect any project requirement for an independent reviewer.
+For standard/deep, delegate the independent review when available. Unless project instructions say otherwise, invoking `create-pr` authorizes the single fresh reviewer this requires, including when it is nested in another workflow, and invoking `create-pr-and-fix-ci` also authorizes its delta re-reviews (see **Handoff and reuse**); no further confirmation is needed. A reviewer must not delegate further. The reviewer gets the exact final range, project root, intent-specific facts, project instructions and focused questions, not the author's conversation or justification. Claude: a fresh general-purpose Sonnet subagent, not a fork. Codex: an available fresh reviewer under the client's supported settings; do not invent provider overrides. Never skip the review silently: if independent execution is unavailable, perform it in the current session and disclose that limitation, unless the project requires an independent reviewer, in which case stop and report.
 
 Reviewer is read-only and reports concrete failure scenarios with file/line evidence, not style nits. Verify findings; preserve confirmed and rejected findings with brief reasons. Do not fix unrelated issues without authorization.
 
@@ -67,6 +67,7 @@ After `create-pr` opens or updates a PR, enable auto-merge on it unless the user
 - Auto-merge only completes once required checks pass. It is not a CI bypass, and a failing check still needs fixing.
 - If the repository disallows auto-merge or the call fails, report that and leave the PR open. Do not fall back to an immediate merge.
 - Read the PR back and report `autoMergeRequest` (method) or the reason it was skipped.
+- Refresh every check's state before any manual merge. `gh pr merge --admin` is allowed only when the sole remaining blocker is a required review on a repository the user maintains alone, as a separate step once every check has passed or been intentionally skipped. Never bypass failing, pending or missing checks, or conflicts.
 
 ## Handoff and reuse
 

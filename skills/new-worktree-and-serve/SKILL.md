@@ -3,8 +3,6 @@ name: new-worktree-and-serve
 description: Create a git worktree and branch for a new task, then start the repo's dev servers in it if it has a dev-up.sh script.
 ---
 
-If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/new-worktree-and-serve.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
 Same as `new-worktree`, plus starting dev servers in the new worktree — for when you know you'll want the servers running right away, not just the worktree set up.

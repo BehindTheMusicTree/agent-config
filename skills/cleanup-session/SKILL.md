@@ -3,11 +3,9 @@ name: cleanup-session
 description: After a feature/fix/release is done, remove this repo's dev leftovers — merged branches, their worktrees, and docker containers/networks/images.
 ---
 
-If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/cleanup-session.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
-Clean up the current repo after a finished session. Everything runs through `scripts/cleanup-session.sh` (branch/worktree logic is `clean-repos.sh` scoped to this repo, then docker). Elements belonging to the current session — its branch (local and remote), its worktree, and the docker compose projects whose name is tied to its worktree — are deleted without asking for confirmation. Always confirm before deleting anything else the script finds that is not related to the current session: other branches, their worktrees and remotes, compose projects of other worktrees (including `dir=gone` ones), and the machine-wide docker prunes.
+Clean up the current repo after a finished session. Run it only once the session's PR is merged; keep the worktree and branch through CI fixes and review until then. Everything runs through `scripts/cleanup-session.sh` (branch/worktree logic is `clean-repos.sh` scoped to this repo, then docker). Elements belonging to the current session — its branch (local and remote), its worktree, and the docker compose projects whose name is tied to its worktree — are deleted without asking for confirmation. Always confirm before deleting anything else the script finds that is not related to the current session: other branches, their worktrees and remotes, compose projects of other worktrees (including `dir=gone` ones), and the machine-wide docker prunes.
 
 Optional flags: **user-provided arguments** — pass through as-is: `--local-only`, `--remote-only`, `--exclude <branch>`, `--no-docker`. Empty = defaults.
 

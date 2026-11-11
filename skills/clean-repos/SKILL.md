@@ -3,8 +3,6 @@ name: clean-repos
 description: Scan every repo under ~/git/ for branches already merged into trunk (or develop under Gitflow) and worktrees pointing at them, then delete what's confirmed.
 ---
 
-If `${CODEX_HOME:-$HOME/.codex}/agent-config/workflow-policies/clean-repos.md` exists, read it before starting: its rules extend this workflow and take precedence over its defaults.
-
 Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any symlink for the skill directory, then take its grandparent directory. Set this environment variable before running the commands below; it must contain the shared `scripts/` directory.
 
 Delete local/remote branches already merged into trunk, and worktrees on those branches, across every repo under `~/git/`. All discovery and deletion goes through `scripts/clean-repos.sh`, one call per phase. Always confirm before deleting.
