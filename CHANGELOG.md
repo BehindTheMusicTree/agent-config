@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `handoff` assumes the recap is resumed right away: it collects repository state in one read-only git call shared with the save step, no longer verifies each claim (including PR status) separately, and no longer tells the next session to re-verify state, saving tool round trips in the long session that writes it
+
 ### CI
 
 - Pin the shared release workflows to the lag-tolerant github-workflows commit 79c1362, so tag creation tolerates GitHub read-after-write delays.

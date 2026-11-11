@@ -9,20 +9,23 @@ Produce a handoff recap so the user can drop this session's context and continue
 
 Optional focus: **user-provided arguments** — narrows the recap to that topic. Empty = whole session.
 
-## Step 1 — Verify state
+## Step 1 — Collect state
 
-Do not recall state from memory. Check each claim with read-only commands before it enters the recap, for example `git worktree list`, `git status --short`, `git branch --show-current`, `git rev-parse --short HEAD`, `gh pr view <n> --json state,mergeStateStatus`. Drop or correct anything that no longer holds.
+A new session resumes from the recap right after it is written, so take decisions, PR numbers and remaining work from this session and run no other state check. Collect the repository state in one Bash call:
+
+```bash
+git rev-parse --path-format=absolute --git-common-dir
+git branch --show-current
+git rev-parse --short HEAD
+git status --short
+git worktree list
+```
 
 ## Step 2 — Write the recap
 
 At most about 30 lines, self-contained, in the language of the user's latest message. The recap exists to let the next session continue: spend the lines on context and remaining work, not on history.
 
-Start with:
-
-1. A header line: date, repository, branch, short HEAD SHA.
-2. One line telling the next session to re-verify state (`git status`, worktrees, PR status) before acting, because the recap may be stale.
-
-Then these sections:
+Start with a header line: date, repository, branch, short HEAD SHA. Then these sections:
 
 - **Context**: concise — the goal in one line, then only the decisions, constraints and facts the next session needs to continue (for example "no release unless asked", a chosen approach, a rejected alternative).
 - **Remaining**: the core of the recap — ordered, actionable next steps, each specific enough to execute without rereading this session (files, commands, PR numbers, open questions for the user).
@@ -34,13 +37,7 @@ Never include secret values, tokens, passwords or credentials; reference secrets
 
 ## Step 3 — Save
 
-```bash
-git rev-parse --path-format=absolute --git-common-dir
-git branch --show-current
-git rev-parse --short HEAD
-```
-
-Write the recap to `agent-handoff-<name>.md` inside the common git directory, overwriting any previous recap for that name. `<name>` is the branch name with every character outside `[A-Za-z0-9._-]` replaced by `-`; when `git branch --show-current` prints nothing, HEAD is detached and `<name>` is `detached-<short SHA>`. Keep the absolute path for Step 4. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, or when the write fails, no file exists: say so and print the recap in Step 4.
+Write the recap to `agent-handoff-<name>.md` inside the common git directory printed in Step 1, overwriting any previous recap for that name. `<name>` is the branch name with every character outside `[A-Za-z0-9._-]` replaced by `-`; when `git branch --show-current` prints nothing, HEAD is detached and `<name>` is `detached-<short SHA>`. Keep the absolute path for Step 4. One file per branch keeps parallel worktree sessions from overwriting each other. The common git dir is shared by all worktrees, so the file never shows in `git status` and survives worktree removal. Outside a git repository, or when the write fails, no file exists: say so and print the recap in Step 4.
 
 ## Step 4 — Report
 
