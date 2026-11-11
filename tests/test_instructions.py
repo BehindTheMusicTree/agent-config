@@ -105,6 +105,10 @@ class InstructionsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Workflow policies are no longer supported'):
                 installer.render_sources(sources, agent)
 
+    def test_single_source_with_workflow_policies_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'Workflow policies are no longer supported'):
+            installer.render(self.private_source(policies={'create-pr': 'Text'}), 'claude')
+
     def legacy_policy_install(self):
         relative = 'agent-config/workflow-policies/create-pr.md'
         (self.home / relative).parent.mkdir(parents=True)

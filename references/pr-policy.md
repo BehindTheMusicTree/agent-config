@@ -63,7 +63,7 @@ Verify the released source and intended integration target from project conventi
 After `create-pr` opens or updates a PR, enable auto-merge on it unless the user opted out (`--no-auto-merge`, or any instruction not to merge).
 
 - Applies to ready, non-draft PRs of every intent, including `release`, `version-bump` and `back-merge`.
-- Run `gh pr merge <pr> --auto` with the repository's merge method: the one its contributing docs state, else `--merge` under Gitflow and `--squash` under GitHub flow. Do not pass `--delete-branch` (it breaks when the head is a trunk branch and removes a branch a worktree may still use) and never `--admin`.
+- Run `gh pr merge <pr> --auto` with the repository's merge method: the one its contributing docs state, else `--merge` under Gitflow and `--squash` under GitHub flow. Do not pass `--delete-branch` (it breaks when the head is a trunk branch and removes a branch a worktree may still use) and never `--admin` on this call.
 - Auto-merge only completes once required checks pass. It is not a CI bypass, and a failing check still needs fixing.
 - If the repository disallows auto-merge or the call fails, report that and leave the PR open. Do not fall back to an immediate merge.
 - Read the PR back and report `autoMergeRequest` (method) or the reason it was skipped.
