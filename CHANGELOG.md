@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-11-11
+
 ### Changed
 
 - The Claude graphify freshness hook tells each session once how to use the graph (`graphify query --budget`, `explain path::symbol`, `path` for structure; `rg`/`Read` for function bodies and call sites) instead of delegating to `graphify hook-guard` on every search, which repeated a `MANDATORY` nudge on each call, and it no longer tells the agent to use `rg`/`Read` on every edit-triggered refresh
