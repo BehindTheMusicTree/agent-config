@@ -46,11 +46,12 @@ class GraphifyFreshTests(unittest.TestCase):
         (repo / 'graphify-out').mkdir(exist_ok=True)
         (repo / 'graphify-out/graph.json').write_text('{}')
 
-    def run_hook(self, cwd, tool='Grep', path=None, args=()):
+    def run_hook(self, cwd, tool='Grep', path=None, args=(), session='s1'):
         env = {**os.environ, 'PATH': f'{self.bin}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin'}
         if path is not None:
             env['PATH'] = path
-        payload = json.dumps({'cwd': str(cwd), 'tool_name': tool, 'tool_input': {'pattern': 'x'}})
+        payload = json.dumps({'cwd': str(cwd), 'tool_name': tool, 'session_id': session,
+                              'tool_input': {'pattern': 'x'}})
         result = subprocess.run([str(SCRIPT), *args], input=payload, text=True, capture_output=True, env=env)
         self.assertEqual(result.returncode, 0)
         return result.stdout
@@ -61,6 +62,9 @@ class GraphifyFreshTests(unittest.TestCase):
                 return
             time.sleep(0.05)
         self.fail('refresh did not finish')
+
+    def context(self, out):
+        return json.loads(out)['hookSpecificOutput']['additionalContext']
 
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
@@ -90,24 +94,43 @@ class GraphifyFreshTests(unittest.TestCase):
         self.graph(self.main)
         self.assertEqual(self.run_hook(self.main, tool='Edit'), '')
 
-    def test_stale_refreshes_once_in_background_and_notes_once(self):
+    def test_stale_graph_refreshes_once_in_background(self):
         self.graph(self.main)
-        first = self.run_hook(self.main)
-        self.assertIn('refreshing in the background', json.loads(first)['hookSpecificOutput']['additionalContext'])
+        self.run_hook(self.main)
         self.wait_for_idle(self.main)
-        self.assertEqual(self.run_hook(self.main, tool='Grep'), 'NUDGE')
+        self.run_hook(self.main)
         update = [c for c in self.calls_made() if '|update .|' in c]
         self.assertEqual(len(update), 1)
         self.assertTrue(update[0].endswith('|1'))
 
-    def test_fresh_key_delegates_to_hook_guard_by_tool(self):
+    def test_existing_graph_is_explained_once_per_session_without_hook_guard(self):
         self.graph(self.main)
-        self.run_hook(self.main)
+        notice = self.context(self.run_hook(self.main))
+        self.assertIn('graphify query', notice)
+        self.assertIn('rg/Read for function bodies', notice)
+        self.assertNotIn('for now', notice)
         self.wait_for_idle(self.main)
-        self.run_hook(self.main, tool='Read')
-        self.run_hook(self.main, tool='Bash')
-        guards = [c.split('|')[1] for c in self.calls_made() if 'hook-guard' in c]
-        self.assertEqual(guards, ['hook-guard read', 'hook-guard search'])
+        for tool in ('Grep', 'Read', 'Bash', 'Glob'):
+            self.assertEqual(self.run_hook(self.main, tool=tool), '')
+        (self.main / 'a.py').write_text('x = 2\n')
+        self.assertEqual(self.run_hook(self.main), '')
+        self.wait_for_idle(self.main)
+        self.assertIn('graphify query', self.context(self.run_hook(self.main, session='s2')))
+        self.assertEqual([c for c in self.calls_made() if 'hook-guard' in c], [])
+
+    def test_session_told_again_once_first_build_finishes(self):
+        self.assertIn('built for the first time', self.context(self.run_hook(self.main)))
+        self.wait_for_idle(self.main)
+        self.assertEqual(self.run_hook(self.main), '')
+        self.graph(self.main)
+        self.assertIn('graphify query', self.context(self.run_hook(self.main)))
+        self.assertEqual(self.run_hook(self.main), '')
+
+    def test_missing_session_id_refreshes_without_notice(self):
+        self.graph(self.main)
+        self.assertEqual(self.run_hook(self.main, session=''), '')
+        self.wait_for_idle(self.main)
+        self.assertTrue((self.main / 'graphify-out/.fresh-key').exists())
 
     def test_codex_client_refreshes_in_silence_and_never_delegates(self):
         codex = ('--client', 'codex')
@@ -118,13 +141,12 @@ class GraphifyFreshTests(unittest.TestCase):
         calls = self.calls_made()
         self.assertEqual(len([c for c in calls if '|update .|' in c]), 1)
         self.assertEqual([c for c in calls if 'hook-guard' in c], [])
-        self.assertFalse((self.main / 'graphify-out/.notified-key').exists())
+        self.assertFalse((self.main / 'graphify-out/.notified-session').exists())
         self.assertTrue((self.main / 'graphify-out/.fresh-key').exists())
 
-    def test_explicit_claude_client_keeps_the_nudge(self):
+    def test_explicit_claude_client_keeps_the_notice(self):
         self.graph(self.main)
-        out = self.run_hook(self.main, args=('--client', 'claude'))
-        self.assertIn('refreshing in the background', json.loads(out)['hookSpecificOutput']['additionalContext'])
+        self.assertIn('graphify query', self.context(self.run_hook(self.main, args=('--client', 'claude'))))
 
     def test_unknown_client_does_nothing(self):
         self.graph(self.main)
@@ -150,7 +172,7 @@ class GraphifyFreshTests(unittest.TestCase):
         self.wait_for_idle(self.main)
         key = (self.main / 'graphify-out/.fresh-key').read_text()
         (self.main / 'a.py').write_text('x = 2\n')
-        self.assertIn('refreshing', self.run_hook(self.main))
+        self.run_hook(self.main)
         self.wait_for_idle(self.main)
         edited = (self.main / 'graphify-out/.fresh-key').read_text()
         self.assertNotEqual(key, edited)
@@ -166,7 +188,7 @@ class GraphifyFreshTests(unittest.TestCase):
         self.wait_for_idle(self.main)
         key = (self.main / 'graphify-out/.fresh-key').read_text()
         (self.main / 'b.py').write_text('y = 2\n')
-        self.assertIn('refreshing', self.run_hook(self.main))
+        self.run_hook(self.main)
         self.wait_for_idle(self.main)
         self.assertNotEqual(key, (self.main / 'graphify-out/.fresh-key').read_text())
 

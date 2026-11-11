@@ -3,6 +3,9 @@
 # Usage: graphify-fresh.sh [--client claude|codex]. The codex client only seeds and refreshes
 # the graph, in silence: Codex Desktop rejects additionalContext on PreToolUse, so its agent is
 # steered by the graphify skill and the Codex instructions instead.
+# The claude client also tells each session once how to use the graph. It does not delegate to
+# `graphify hook-guard`, whose per-call nudge is ignored after the first few calls and contradicts
+# the refresh notice while the agent edits.
 set -u
 trap 'exit 0' ERR
 
@@ -25,14 +28,15 @@ import json, sys
 d = json.load(sys.stdin)
 print(d.get("cwd") or "")
 print(d.get("tool_name") or "")
+print(d.get("session_id") or "")
 ' 2>/dev/null) || exit 0
 cwd=$(printf '%s\n' "$parsed" | sed -n 1p)
 tool=$(printf '%s\n' "$parsed" | sed -n 2p)
+session=$(printf '%s\n' "$parsed" | sed -n 3p)
 [ -n "$cwd" ] || exit 0
 
 case "$tool" in
-  Bash|Grep) kind=search ;;
-  Read|Glob) kind="read" ;;
+  Bash|Grep|Read|Glob) ;;
   *) exit 0 ;;
 esac
 
@@ -57,40 +61,44 @@ diff_sum=$(git -C "$top" diff HEAD --no-ext-diff -- . ':!graphify-out' | shasum 
 untracked_sum=$(cd "$top" && git ls-files -o --exclude-standard | { grep -v '^graphify-out/' || true; } | tr '\n' '\0' | { xargs -0 shasum -a 256 2>/dev/null || true; } | shasum -a 256 | cut -d' ' -f1)
 key="$head_sha:$(printf '%s%s' "$diff_sum" "$untracked_sum" | shasum -a 256 | cut -d' ' -f1)"
 
-if [ -f "$out/.fresh-key" ] && [ "$(cat "$out/.fresh-key")" = "$key" ]; then
-  [ "$client" = claude ] && cd "$top" && printf '%s' "$input" | graphify hook-guard "$kind"
-  exit 0
-fi
-
-lock="$out/.refresh.lock"
-if [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
-  rmdir "$lock" 2>/dev/null || true
-fi
-if [ "$(cat "$out/.failed-key" 2>/dev/null)" != "$key" ] && mkdir "$lock" 2>/dev/null; then
-  (
-    trap '' HUP
-    cd "$top" || exit 0
-    if GRAPHIFY_NO_BACKUP=1 graphify update . >"$out/refresh.log" 2>&1; then
-      printf '%s' "$key" >"$out/.fresh-key"
-    else
-      printf '%s' "$key" >"$out/.failed-key"
-    fi
+if [ "$(cat "$out/.fresh-key" 2>/dev/null)" != "$key" ]; then
+  lock="$out/.refresh.lock"
+  if [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
     rmdir "$lock" 2>/dev/null || true
-  ) </dev/null >/dev/null 2>&1 &
-  disown 2>/dev/null || true
+  fi
+  if [ "$(cat "$out/.failed-key" 2>/dev/null)" != "$key" ] && mkdir "$lock" 2>/dev/null; then
+    (
+      trap '' HUP
+      cd "$top" || exit 0
+      if GRAPHIFY_NO_BACKUP=1 graphify update . >"$out/refresh.log" 2>&1; then
+        printf '%s' "$key" >"$out/.fresh-key"
+      else
+        printf '%s' "$key" >"$out/.failed-key"
+      fi
+      rmdir "$lock" 2>/dev/null || true
+    ) </dev/null >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  fi
 fi
 
 [ "$client" = claude ] || exit 0
+[ -n "$session" ] || exit 0
 
-if [ "$(cat "$out/.notified-key" 2>/dev/null)" != "$key" ]; then
-  printf '%s' "$key" >"$out/.notified-key"
-  if [ ! -f "$out/graph.json" ]; then
-    msg="graphify graph is being built for the first time; use rg/Read for now."
-  else
-    built=an\ older\ commit
-    [ -f "$out/.fresh-key" ] && built=$(cut -c1-8 "$out/.fresh-key")
-    msg="graphify graph is refreshing in the background (built for $built); use rg/Read for now."
-  fi
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}' "$msg"
+# One notice per session and graph state: a session that starts during the first build is told
+# again once the graph exists.
+state=ready
+[ -f "$out/graph.json" ] || state=building
+marker="$session:$state"
+[ "$(cat "$out/.notified-session" 2>/dev/null)" = "$marker" ] && exit 0
+printf '%s' "$marker" >"$out/.notified-session"
+
+if [ "$state" = building ]; then
+  msg='graphify graph is being built for the first time; use rg/Read for now.'
+else
+  msg=$(cat <<'EOF'
+This repository has a graphify knowledge graph in graphify-out/, refreshed in the background after edits. Use it for structure questions (modules, dependencies, how concepts connect): graphify query '<specific question>' --budget 800, graphify explain '<path>::<symbol>', graphify path '<A>' '<B>'. Use rg/Read for function bodies, exact call sites and line-level work: the graph is static and misses calls resolved at runtime. This note is shown once per session.
+EOF
+)
 fi
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}' "$msg"
 exit 0
