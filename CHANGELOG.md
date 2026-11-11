@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### CI
+
+- Pin the shared release workflows to the lag-tolerant github-workflows commit 79c1362, so tag creation tolerates GitHub read-after-write delays.
+
 ## [2.6.1] - 2026-11-11
 
 ### Changed
