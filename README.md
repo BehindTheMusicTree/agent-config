@@ -67,10 +67,11 @@ move a tag for recovery. Plugin publication and local installation remain separa
 The Claude plugin ships a `PreToolUse` hook (`hooks/hooks.json`, matcher `Bash|Grep|Read|Glob`) that runs `scripts/graphify-fresh.sh`. It only acts when `graphify` is on `PATH` and the repository ignores `graphify-out/` in a versioned `.gitignore` (`git check-ignore graphify-out/graph.json`); every other repository is untouched. A repository that opts in without a graph gets its first one built in the background, with a one-time notice to use `rg`/`Read` meanwhile. It never blocks a tool call.
 
 - A linked worktree without `graphify-out/` is seeded from the main checkout when it has a graph (graph, manifest, cache, report; not dated backups or `graph.html`).
-- The freshness key is `HEAD` plus a hash of the uncommitted diff and untracked files. When it matches `graphify-out/.fresh-key`, the hook delegates to `graphify hook-guard search|read`.
-- Otherwise it starts one detached `graphify update .` (code-only, no backup dirs, guarded by `graphify-out/.refresh.lock`, stale after 10 minutes), logs to `graphify-out/refresh.log`, and tells the agent once per key to use `rg`/`Read` meanwhile.
+- The freshness key is `HEAD` plus a hash of the uncommitted diff and untracked files. When it differs from `graphify-out/.fresh-key`, the hook starts one detached `graphify update .` (code-only, no backup dirs, guarded by `graphify-out/.refresh.lock`, stale after 10 minutes) and logs to `graphify-out/refresh.log`.
+- Each session (`session_id`, recorded in `graphify-out/.notified-session`) gets one notice once a graph exists: use `graphify query --budget`, `explain path::symbol` or `path` for structure questions, and `rg`/`Read` for function bodies and call sites, since the static graph misses calls resolved at runtime. A session that starts during the first build is told again when the graph is ready. Edits and background refreshes add no further context.
+- The hook never calls `graphify hook-guard`. Its per-call `MANDATORY` nudge was ignored after the first few calls and contradicted the refresh notice whenever an edit changed the key.
 
-This replaces per-repository `graphify hook-guard` entries in `.claude/settings.json`. The hook reaches installed sessions with the next plugin release.
+This replaces per-repository `graphify hook-guard` entries in `.claude/settings.json`; remove any that remain, or the per-call nudge comes back. The hook reaches installed sessions with the next plugin release.
 
 ### Codex
 
