@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-11-12
+
 ### Fixed
 
 - `review` and `create-pr` state inline that the user's invocation is their explicit request for the fresh reviewer subagent, and `review` names the Agent call to make, so Claude no longer declines the reviewer as an unrequested subagent; a standalone `review` now carries the same authorization
