@@ -91,7 +91,7 @@ Refresh the context after tests/docs, edits, or a base merge so the PR text desc
 
 ## Step 9a — Review the final state
 
-Invoke `$review` for the final code and integration state, passing the selected intent/depth, pinned range and applicable evidence. Reuse an existing review only when its range and relevant inputs still apply; disclose any unavailable independent-review capability. Revisit changed hunks/interactions after post-review edits. Incorporate intent-specific evidence and limitations into the PR body. Do not duplicate a review just because this skill was called by another workflow. If a confirmed finding exposes a missing or outdated convention, or recurs in this PR, propose the policy's durable fix as in Step 4 and wait for approval.
+Invoke `$review` for the final code and integration state, passing the selected intent/depth, pinned range and applicable evidence. This skill's invocation is the user's explicit request for the fresh reviewer `review` uses; do not ask again. Reuse an existing review only when its range and relevant inputs still apply; disclose any unavailable independent-review capability. Revisit changed hunks/interactions after post-review edits. Incorporate intent-specific evidence and limitations into the PR body. Do not duplicate a review just because this skill was called by another workflow. If a confirmed finding exposes a missing or outdated convention, or recurs in this PR, propose the policy's durable fix as in Step 4 and wait for approval.
 
 ## Step 10 — Push and open
 
