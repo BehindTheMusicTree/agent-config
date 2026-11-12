@@ -8,7 +8,7 @@
   "commands/new-worktree.md": "7cf1896a53a0d85b617774e6553013093f07bc8dedfdde4c0d0607ffd669d0ca",
   "commands/refresh-worktree.md": "e536b6dcb42fcf0c6ca289cda2f19e202d4b699a1564da4821237d204e586875",
   "commands/release.md": "c878026c2353972850c59ec6b61f4cea4db962a0484b4a7ac6d939869882efec",
-  "commands/review.md": "29cadea112c2fa25ee9e4106142d65f23f29f32ad6d0cf1e346fef7a23c075e5",
+  "commands/review.md": "f935426e613eeee58659d0f59daa6b2e93916d6560e7e6a87c30ca46b68c8af6",
   "commands/update-skill.md": "078e5221be6664110a1aab9b434ef597925cf50f66bdc3333d646f95b523fe11",
   "skills/clean-repos/SKILL.md": "7b50f356a88cc00db8b300324e1c9f4f669e00c47afd5ee1f047b04307e1ec18",
   "skills/cleanup-session/SKILL.md": "b66a1153fd29e986c281d893db63a2c8d90ea16306c5a749d56e7abcd5f4ea4b",
@@ -19,6 +19,6 @@
   "skills/new-worktree/SKILL.md": "195aa005858a72307db7672ec14e9188f4360d76ed25c1bfb97d2a21aec89cb9",
   "skills/refresh-worktree/SKILL.md": "cc34e2334cda5143cf78d83b37e7f9e568f0190fdc29fda1ee53b397677f2d5c",
   "skills/release/SKILL.md": "48f590a53ae29b86e76418ba6b5288765d422a65f3ae2f53295af0a5cca9e96d",
-  "skills/review/SKILL.md": "20304391d0c4c1561920165d083d934cf8c5fab22df0ef587626db67096a4e53",
+  "skills/review/SKILL.md": "b948da37db07c7e8100463c12e35faaa988cdf372b432e216db94f9668005cce",
   "skills/update-skill/SKILL.md": "cb6c0fcb8ad6200ae8d2af9017cd51af7b0f0bcbb8b9cba97c68b856d8df7262"
 }
