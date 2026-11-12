@@ -5,6 +5,7 @@
 ### Fixed
 
 - The graphify freshness tests wait for the hook's detached refresh before deleting their temporary directory, so CI no longer fails intermittently with "Directory not empty"
+- The instruction adapter test ignores the checkout path when checking that the Codex output has no `/graphify` reference, so a checkout whose path contains "graphify" no longer fails it
 
 ## [3.0.2] - 2026-11-12
 
