@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The Claude adapter tells Claude to query an existing graphify graph (`graphify query --budget`, `explain`, `path`) for structure questions before broad `rg` or whole-file reads, as the Codex adapter already does; the once-per-session hook notice alone was lost in long sessions, which then read whole files to answer them
+
 ## [3.0.1] - 2026-11-12
 
 ### Fixed
