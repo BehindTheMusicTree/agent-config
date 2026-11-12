@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The graphify freshness tests wait for the hook's detached refresh before deleting their temporary directory, so CI no longer fails intermittently with "Directory not empty"
+
 ## [3.0.2] - 2026-11-12
 
 ### Fixed
