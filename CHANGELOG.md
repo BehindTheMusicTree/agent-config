@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `cleanup-session` no longer asks before the machine-wide docker prunes or `docker-unstick`; apply runs them, and only other branches, worktrees and compose projects still need confirmation
+
 ### Fixed
 
 - The graphify freshness tests wait for the hook's detached refresh before deleting their temporary directory, so CI no longer fails intermittently with "Directory not empty"
