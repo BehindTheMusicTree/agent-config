@@ -127,7 +127,7 @@ class WorktreePathsTests(unittest.TestCase):
                 self.assertFalse((root / '.codex/worktrees/feature-x/.venv').exists())
 
     def test_pyproject_venv_interpreter_and_install_failure(self):
-        for scenario in ('uv', 'missing_pin', 'dev_failure', 'quoted_dev'):
+        for scenario in ('uv', 'missing_pin', 'dev_failure', 'quoted_dev', 'quoted_table'):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory) / 'repo'
                 stubs = Path(directory) / 'bin'
@@ -136,7 +136,9 @@ class WorktreePathsTests(unittest.TestCase):
                 calls = Path(directory) / 'calls'
                 (stubs / 'bash').symlink_to(shutil.which('bash'))
                 (root / 'pyproject.toml').write_text(
-                    '[project]\nname = "x"\n[project.optional-dependencies]\n'
+                    '[project]\nname = "x"\n'
+                    + ('[project . "optional-dependencies"]\n' if scenario == 'quoted_table'
+                       else '[project.optional-dependencies]\n')
                     + ('"dev"' if scenario == 'quoted_dev' else 'dev') + ' = []\n'
                 )
                 (root / '.python-version').write_text('3.12\n')
