@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-11-13
+
 ### Fixed
 
 - Worktree setup respects pinned Python versions and reports failed dev dependency installs.
