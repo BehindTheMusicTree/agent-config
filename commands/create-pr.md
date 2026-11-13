@@ -32,7 +32,7 @@ No valid prefix → propose a name (`feature/` for new work, `hotfix/` only if c
 
 ## Step 3 — Changelog
 
-Skip a new changelog entry for `back-merge`. Otherwise, if a changelog exists (`CHANGELOG.md`, `HISTORY.md`, …) and doesn't cover this branch, add an entry in the file's existing format without asking. One plain-language line describing the effect for users/devs — not a commit message.
+Skip a new changelog entry for `back-merge`. Otherwise, if a changelog exists (`CHANGELOG.md`, `HISTORY.md`, …) and doesn't cover this branch, add an entry in the file's existing format without asking. One plain-language line describing the effect for users/devs — not a commit message. Follow the Keep a Changelog conventions: entries go under `[Unreleased]` (never inside a code-block example); categories in the order Added, Changed, Improved, Deprecated, Removed, Fixed, Documentation, Performance, CI (omit empty ones); "Test" is not a category, so mention tests in the related entry; group related changes; ISO 8601 dates. Do not add contributor guidelines or example entries to the changelog itself.
 
 ## Step 4 — CLAUDE.md
 
