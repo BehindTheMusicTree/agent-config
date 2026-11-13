@@ -4,6 +4,7 @@
 
 ### Changed
 
+- `create-pr` now carries the changelog conventions (category order, no "Test" category, entries under `[Unreleased]`) and says not to put contributor guidelines or example entries in the changelog itself, since examples duplicating the `[Unreleased]` heading misled agents.
 - `cleanup-session` no longer asks before the machine-wide docker prunes or `docker-unstick`; apply runs them, and only other branches, worktrees and compose projects still need confirmation
 
 ### Fixed
