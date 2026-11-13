@@ -6,6 +6,17 @@
 
 - `cleanup-session` no longer asks before the machine-wide docker prunes or `docker-unstick`; apply runs them, and only other branches, worktrees and compose projects still need confirmation
 
+### Fixed
+
+- The graphify freshness tests wait for the hook's detached refresh before deleting their temporary directory, so CI no longer fails intermittently with "Directory not empty"
+- The instruction adapter test ignores the checkout path when checking that the Codex output has no `/graphify` reference, so a checkout whose path contains "graphify" no longer fails it
+
+## [3.0.2] - 2026-11-12
+
+### Fixed
+
+- The Claude adapter tells Claude to query an existing graphify graph (`graphify query --budget`, `explain`, `path`) for structure questions before broad `rg` or whole-file reads, as the Codex adapter already does; the once-per-session hook notice alone was lost in long sessions, which then read whole files to answer them
+
 ## [3.0.1] - 2026-11-12
 
 ### Fixed

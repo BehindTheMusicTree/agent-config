@@ -19,6 +19,9 @@ class GraphifyFreshTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='graphify fresh ')
         self.addCleanup(self.temp.cleanup)
+        # Registered last so it runs first: tests that start the hook without waiting leave a detached
+        # refresh writing into the tree that the temp directory cleanup is about to delete.
+        self.addCleanup(self.drain_refreshes)
         self.root = Path(self.temp.name).resolve()
         self.main = self.root / 'main'
         self.main.mkdir()
@@ -55,6 +58,13 @@ class GraphifyFreshTests(unittest.TestCase):
         result = subprocess.run([str(SCRIPT), *args], input=payload, text=True, capture_output=True, env=env)
         self.assertEqual(result.returncode, 0)
         return result.stdout
+
+    def drain_refreshes(self):
+        root = Path(self.temp.name)
+        for _ in range(200):
+            if not list(root.glob('**/graphify-out/.refresh.lock')):
+                return
+            time.sleep(0.05)
 
     def wait_for_idle(self, repo):
         for _ in range(100):

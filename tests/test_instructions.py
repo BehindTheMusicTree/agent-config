@@ -34,7 +34,8 @@ class InstructionsTests(unittest.TestCase):
         self.assertIn(common, claude['CLAUDE.md'])
         self.assertIn(common, codex)
         self.assertIn('/graphify', claude['CLAUDE.md'])
-        self.assertNotIn('/graphify', codex)
+        # Generated paths embed the checkout location, which may itself contain "graphify".
+        self.assertNotIn('/graphify', codex.replace(str(ROOT), ''))
         for name, rule in installer.load_scopes(ROOT).items():
             source = ROOT / rule['source']
             self.assertIn(str(source), codex)
