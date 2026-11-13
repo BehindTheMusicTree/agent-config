@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `cleanup-session` no longer asks before the machine-wide docker prunes or `docker-unstick`; apply runs them, and only other branches, worktrees and compose projects still need confirmation
+
 ## [3.0.1] - 2026-11-12
 
 ### Fixed
