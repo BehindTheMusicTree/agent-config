@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-13
 ### Changed
 
 - `create-pr` now carries the changelog conventions (category order, no "Test" category, entries under `[Unreleased]`) and says not to put contributor guidelines or example entries in the changelog itself, since examples duplicating the `[Unreleased]` heading misled agents.
