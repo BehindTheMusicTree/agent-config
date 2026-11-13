@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -124,6 +125,51 @@ class WorktreePathsTests(unittest.TestCase):
                 self.assertIn(f'install_tool={tool}\ninstall_status={status}\n', output)
                 self.assertEqual(calls.read_text(), f'{command}\n')
                 self.assertFalse((root / '.codex/worktrees/feature-x/.venv').exists())
+
+    def test_pyproject_venv_interpreter_and_install_failure(self):
+        for scenario in ('uv', 'missing_pin', 'dev_failure'):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / 'repo'
+                stubs = Path(directory) / 'bin'
+                root.mkdir()
+                stubs.mkdir()
+                calls = Path(directory) / 'calls'
+                (stubs / 'bash').symlink_to(shutil.which('bash'))
+                (root / 'pyproject.toml').write_text(
+                    '[project]\nname = "x"\n[project.optional-dependencies]\ndev = []\n'
+                )
+                (root / '.python-version').write_text('3.12\n')
+                run('git', 'init', '-q', '-b', 'main', cwd=root)
+                run('git', 'add', '.', cwd=root)
+                run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                    'commit', '-q', '-m', 'initial', cwd=root)
+                python_stub = stubs / 'python3'
+                python_stub.write_text(f'#!/bin/sh\necho python3 >> "{calls}"\nexit 1\n')
+                python_stub.chmod(0o755)
+                if scenario != 'missing_pin':
+                    uv = stubs / 'uv'
+                    uv.write_text(
+                        f'#!/bin/sh\necho "uv $*" >> "{calls}"\nmkdir -p .venv/bin\n'
+                        f"printf '#!/bin/sh\\nif [ \"$1\" = --version ]; then echo Python 3.12.13; exit 0; fi\\n"
+                        f"echo \"pip $*\" >> \"{calls}\"\\nexit {1 if scenario == 'dev_failure' else 0}\\n' > .venv/bin/python\n"
+                        'chmod +x .venv/bin/python\n'
+                    )
+                    uv.chmod(0o755)
+                env = {**os.environ, 'PATH': f'{stubs}:/usr/bin:/bin:/usr/sbin:/sbin'}
+                output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'feature/x', 'main',
+                             cwd=root, env=env)
+                self.assertIn('install_tool=venv\n', output)
+                if scenario == 'missing_pin':
+                    self.assertIn('install_status=fail\n', output)
+                    self.assertFalse(calls.exists())
+                    log = Path(next(line.split('=', 1)[1] for line in output.splitlines()
+                                    if line.startswith('install_log=')))
+                    self.assertIn('python3.12', log.read_text())
+                else:
+                    self.assertIn('install_python=Python 3.12.13\n', output)
+                    self.assertIn(f'install_status={"fail" if scenario == "dev_failure" else "ok"}\n', output)
+                    self.assertEqual(calls.read_text().splitlines(),
+                                     ['uv venv --seed .venv', 'pip -m pip install -e .[dev]'])
 
     def test_cleanup_scans_both_locations_and_skips_shared_projects(self):
         with tempfile.TemporaryDirectory() as directory:

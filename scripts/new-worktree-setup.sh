@@ -170,14 +170,29 @@ elif [[ -f Pipfile.lock ]]; then
   install_tool="pipenv"; pipenv install >>"$install_log" 2>&1 && install_status="ok" || install_status="fail"
 elif [[ -f pyproject.toml ]]; then
   install_tool="venv"
-  if python3 -m venv .venv >>"$install_log" 2>&1 && source .venv/bin/activate; then
-    if grep -q '^\s*dev\s*=' pyproject.toml || grep -q '\[project.optional-dependencies\]' pyproject.toml; then
-      python3 -m pip install -e ".[dev]" >>"$install_log" 2>&1 || python3 -m pip install -e . >>"$install_log" 2>&1
-    else
-      python3 -m pip install -e . >>"$install_log" 2>&1
-    fi && install_status="ok" || install_status="fail"
+  install_status="fail"
+  if command -v uv >/dev/null 2>&1; then
+    uv venv --seed .venv >>"$install_log" 2>&1 && venv_ready=true || venv_ready=false
   else
-    install_status="fail"
+    venv_python=python3
+    if [[ -f .python-version ]]; then
+      venv_python="python$(tr -d '[:space:]' < .python-version)"
+    fi
+    if ! command -v "$venv_python" >/dev/null 2>&1; then
+      echo "Required Python interpreter not found: $venv_python" >>"$install_log"
+      venv_ready=false
+    else
+      "$venv_python" -m venv .venv >>"$install_log" 2>&1 && venv_ready=true || venv_ready=false
+    fi
+  fi
+  if [[ "$venv_ready" == true ]]; then
+    install_python=$(.venv/bin/python --version 2>>"$install_log") || install_python="unknown"
+    echo "install_python=$install_python"
+    if awk '/^[[:space:]]*\[/{section = ($0 ~ /^[[:space:]]*\[project\.optional-dependencies\][[:space:]]*(#.*)?$/)} section && /^[[:space:]]*dev[[:space:]]*=/ {found=1} END {exit !found}' pyproject.toml; then
+      .venv/bin/python -m pip install -e ".[dev]" >>"$install_log" 2>&1 && install_status="ok"
+    else
+      .venv/bin/python -m pip install -e . >>"$install_log" 2>&1 && install_status="ok"
+    fi
   fi
 fi
 echo "install_tool=$install_tool"
