@@ -188,7 +188,7 @@ elif [[ -f pyproject.toml ]]; then
   if [[ "$venv_ready" == true ]]; then
     install_python=$(.venv/bin/python --version 2>>"$install_log") || install_python="unknown"
     echo "install_python=$install_python"
-    if awk '/^[[:space:]]*\[/{section = ($0 ~ /^[[:space:]]*\[project\.optional-dependencies\][[:space:]]*(#.*)?$/)} section && /^[[:space:]]*dev[[:space:]]*=/ {found=1} END {exit !found}' pyproject.toml; then
+    if awk '/^[[:space:]]*\[/{section = ($0 ~ /^[[:space:]]*\[project\.optional-dependencies\][[:space:]]*(#.*)?$/)} section && /^[[:space:]]*["\047]?dev["\047]?[[:space:]]*=/ {found=1} END {exit !found}' pyproject.toml; then
       .venv/bin/python -m pip install -e ".[dev]" >>"$install_log" 2>&1 && install_status="ok"
     else
       .venv/bin/python -m pip install -e . >>"$install_log" 2>&1 && install_status="ok"
