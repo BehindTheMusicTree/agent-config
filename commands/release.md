@@ -7,7 +7,7 @@ Detect the repo's git flow, check the current branch against it, open the PR to 
 
 Prepare a reviewed release PR, then follow its tag, required publications and declared deployments. A merged PR alone does not establish publication. Read `references/release-contract.md` from this plugin/skill repository for the CI/legacy contract and recovery rules.
 
-A release must be explicitly requested in this conversation. When a release is requested as part of a multi-PR plan, it comes once, at the end. Planning, fixing release infrastructure or preparing a migration does not authorize a bump, tag, package publish or production deployment. Invoking this release workflow is a release request; `--auto` is valid only under that authorization. Honor existing session authorization instead of repeating confirmation gates.
+Inspect the release state and present a concrete proposal naming the repositories, version, scope and publication/deployment effects. Obtain confirmation before any release mutation, including version bumps, release dependency-pin updates, tags, publication or production deployment. A general release request or invocation of this workflow authorizes inspection and proposal; approval of the concrete proposal authorizes its execution. Reuse approval already given for that scope, including approval recorded in a handoff; ask again only when the scope materially changes. `--auto` does not replace approval. Implementation, release-infrastructure fixes and migration preparation alone do not authorize release execution. A coordinated multi-PR release comes once, at the end.
 
 Optional context: **$ARGUMENTS** (version/bump, optionally `--auto`).
 

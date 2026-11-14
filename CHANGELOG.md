@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Handoffs preserve task authorization without spreading recap-only restrictions; release workflows confirm a concrete proposal before mutations and retain approval across handoffs.
+
 ## [3.1.1] - 2026-11-13
 
 ### Fixed

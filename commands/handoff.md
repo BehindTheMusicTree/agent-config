@@ -2,7 +2,7 @@
 description: Write a self-contained recap of the current session, save it to a file outside the working tree so a fresh session can resume after /clear or in a new session.
 ---
 
-Produce a handoff recap so the user can drop this session's context and continue in a fresh one. Strictly read-only apart from the single recap file below: no commits and no other edits.
+Produce a handoff recap so the user can drop this session's context and continue in a fresh one. While generating this recap, only write the recap file; do not commit or edit the repository. This restriction applies only to recap generation, not to work resumed from it.
 
 Optional focus: **$ARGUMENTS** — narrows the recap to that topic. Empty = whole session.
 
@@ -30,7 +30,7 @@ At most about 30 lines, self-contained, in the language of the user's latest mes
 
 Start with a header line: date, `<repo>`, branch and short HEAD SHA from Step 2, and the resume directory. Then these sections:
 
-- **Context**: concise — the goal in one line, then only the decisions, constraints and facts the next session needs to continue (for example "no release unless asked", a chosen approach, a rejected alternative).
+- **Context**: concise — the goal in one line, then only the decisions, constraints and facts the next session needs to continue (for example a chosen approach, a rejected alternative, or a pending release confirmation). Preserve the user's task scope, granted authorization and pending confirmations, including any approved release's repositories, version, scope and publication/deployment effects. Do not turn this workflow's read-only restriction into a constraint on resumed work. Distinguish state ("not committed yet", "no PR yet") from an explicit prohibition; do not invent restrictions or discard existing authorization.
 - **Remaining**: the core of the recap — ordered, actionable next steps, each specific enough to execute without rereading this session (files, commands, PR numbers, open questions for the user).
 - **State**: worktrees and branches still alive, uncommitted changes, running servers.
 - **Done**: very terse — one short line per item with its PR number or SHA, no description of how it was done.
