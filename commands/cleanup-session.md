@@ -12,7 +12,7 @@ Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote
 
 Before scanning, inventory this session's `.agent-tmp/` and any other known task outputs. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
 
-Create a unique log directory for this cleanup. It is an intentional external exception because apply may remove the worktree and its Git directory. Read the logs and delete this directory after cleanup, including on failure; retain it only when needed for diagnosis and report its path and reason.
+Create a unique log directory for this cleanup. It is an intentional external exception because apply may remove the worktree and its Git directory. Read the logs and delete this directory after cleanup, including on failure or when cleanup is cancelled; retain it only when needed for diagnosis and report its path and reason.
 
 ```bash
 cleanup_log_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-cleanup.XXXXXX")"

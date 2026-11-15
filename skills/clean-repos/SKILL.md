@@ -13,8 +13,17 @@ Optional scope: **user-provided arguments** — e.g. "only <repo>", "exclude <re
 
 ## Step 1 — Scan (read-only)
 
+Create a unique log directory outside the worktrees that apply may remove. Read the logs and delete this directory when finished, including on failure or when cleanup is cancelled; retain it only for diagnosis and report its path and reason.
+
 ```bash
-"$SKILL_REPO_ROOT/scripts/clean-repos.sh" scan "$HOME/git" [flags] > /tmp/clean-repos-scan.txt 2>&1; echo "exit:$?" >> /tmp/clean-repos-scan.txt
+cleanup_log_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-clean-repos.XXXXXX")"
+printf '%s\n' "$cleanup_log_dir"
+```
+
+Use the printed absolute directory in subsequent tool calls; shell variables do not persist between calls. Replace `$cleanup_log_dir` below with that literal path.
+
+```bash
+"$SKILL_REPO_ROOT/scripts/clean-repos.sh" scan "$HOME/git" [flags] > "$cleanup_log_dir/scan.txt" 2>&1; echo "exit:$?" >> "$cleanup_log_dir/scan.txt"
 ```
 
 Prints one block per repo with candidates (clean repos are silent), then a `summary:` line. Besides plain `local:` and `remote:` branches and `worktrees:`, these candidate types need attention:
@@ -32,7 +41,7 @@ Show the candidates grouped by repo and wait for explicit confirmation. Remote d
 ## Step 3 — Apply
 
 ```bash
-"$SKILL_REPO_ROOT/scripts/clean-repos.sh" apply "$HOME/git" [same flags] > /tmp/clean-repos-apply.txt 2>&1; echo "exit:$?" >> /tmp/clean-repos-apply.txt
+"$SKILL_REPO_ROOT/scripts/clean-repos.sh" apply "$HOME/git" [same flags] > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?" >> "$cleanup_log_dir/apply.txt"
 ```
 
 `apply` re-derives candidates fresh (new fetch, new merge check) and removes worktrees before their branch. It uses `git branch -D` only after confirming the branch is an ancestor of `origin/<trunk>` or that its content is already on trunk. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`, `delete-failed`, `push-delete-failed` or `open-prs-unknown` — relay them, don't override.
