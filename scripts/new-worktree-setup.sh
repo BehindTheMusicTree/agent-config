@@ -74,6 +74,22 @@ echo "worktree_path=$wt_abs"
 echo "branch=$branch"
 echo "base_ref=$base_for_add"
 
+# A repository-level core.excludesFile can override the managed global file.
+rollback_scratch_setup() {
+  local reason="$1"
+  if git worktree remove "$wt_abs" >/dev/null 2>&1 && git branch -D "$branch" >/dev/null 2>&1; then
+    echo "status=blocked reason=$reason"
+  else
+    echo "status=blocked reason=$reason cleanup=manual worktree=$wt_abs branch=$branch"
+  fi
+  exit 0
+}
+if ! git -C "$wt_abs" check-ignore -q .agent-tmp/probe; then
+  exclude="$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+  printf '\n.agent-tmp/\n' >> "$exclude" || { rollback_scratch_setup scratch-exclude-write-failed; }
+  git -C "$wt_abs" check-ignore -q .agent-tmp/probe || { rollback_scratch_setup scratch-not-ignored; }
+fi
+
 # --- discover + copy gitignored env files ---
 mapfile -t env_files < <(git -C "$repo_root" status --ignored --porcelain=v1 | awk '/^!!/{print $2}' | grep -E '(^|/)\.env(\.[A-Za-z0-9._-]+)?$')
 echo "env_files_copied=${#env_files[@]}"
