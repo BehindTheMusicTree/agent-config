@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Keep task scratch files in ignored worktree storage; session cleanup accounts for external artifacts and removes its own temporary logs.
+
 ## [3.1.2] - 2026-11-14
 
 ### Fixed

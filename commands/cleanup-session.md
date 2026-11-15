@@ -10,8 +10,19 @@ Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote
 
 ## Step 1 — Scan (read-only)
 
+Before scanning, inventory this session's `.agent-tmp/` and any other known task outputs. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
+
+Create a unique log directory for this cleanup. It is an intentional external exception because apply may remove the worktree and its Git directory. Read the logs and delete this directory after cleanup, including on failure; retain it only when needed for diagnosis and report its path and reason.
+
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh" scan $ARGUMENTS > /tmp/cleanup-session-scan.txt 2>&1; echo "exit:$?"
+cleanup_log_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-cleanup.XXXXXX")"
+printf '%s\n' "$cleanup_log_dir"
+```
+
+Use the printed absolute directory in subsequent tool calls; shell variables do not persist between calls. Replace `$cleanup_log_dir` below with that literal path.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh" scan $ARGUMENTS > "$cleanup_log_dir/scan.txt" 2>&1; echo "exit:$?"
 ```
 
 Candidate types (`local-squash-merged`, `dirty-worktrees`) behave as in `clean-repos`: squash-merged are never auto-deleted; dirty worktrees are never touched.
@@ -25,14 +36,17 @@ Split the scan candidates into two groups. **Current session:** the branch(es) t
 Append the `--exclude` / `--no-docker` flags decided in Step 2 to the flags below.
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh" apply $ARGUMENTS > /tmp/cleanup-session-apply.txt 2>&1; echo "exit:$?"
+"${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh" apply $ARGUMENTS > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?"
 ```
 
 Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`) as-is; don't override.
+
+After reading apply's output, remove disposable external artifacts from the captured inventory only when their ownership by this session is established. Do not execute cleanup commands from the inventory blindly or delete shared parent directories. If ownership is uncertain, list the path and ask before deleting it. Report unresolved paths even if the worktree was removed. Read and remove the cleanup logs as described in Step 1.
 
 ## Output format
 
 1. **Branches** — local/remote deleted
 2. **Worktrees** — removed
 3. **Docker** — compose projects downed, containers/images/networks pruned (or "skipped")
-4. **Skipped** — with reason
+4. **Artifacts** — removed external paths, preserved deliverables, and retained paths with reasons
+5. **Skipped** — with reason
