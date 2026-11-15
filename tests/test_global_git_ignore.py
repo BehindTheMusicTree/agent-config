@@ -74,6 +74,18 @@ class GlobalGitIgnoreTests(unittest.TestCase):
             installer.apply(installer.prepare_git_ignore())
         self.assertEqual((self.home / '.config/git/ignore').read_text(), '.agent-tmp/\n')
 
+    def test_global_config_includes_are_respected(self):
+        included = self.home / 'included config'
+        custom = self.home / 'included ignore'
+        self.git('config', '--file', str(included), 'core.excludesFile', str(custom))
+        self.git('config', '--global', 'include.path', str(included))
+        installer.apply(installer.prepare_git_ignore())
+        self.assertEqual(custom.read_text(), '.agent-tmp/\n')
+        self.assertFalse(self.default.exists())
+        repo = self.base / 'repo'
+        self.git('init', '-q', str(repo))
+        self.assertEqual(self.git('check-ignore', '.agent-tmp/trace.json', cwd=repo).returncode, 0)
+
     def test_existing_rule_with_trailing_comments_is_unchanged(self):
         self.default.parent.mkdir(parents=True)
         self.default.write_text('other-rule\n.agent-tmp/\n\n# personal comment\n')

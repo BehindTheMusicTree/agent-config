@@ -139,7 +139,7 @@ def snapshot(path):
 
 def prepare_git_ignore():
     """Append the scratch-directory rule to Git's global excludes file without changing Git config."""
-    result = subprocess.run(['git', 'config', '--global', '--path', '--get', 'core.excludesFile'],
+    result = subprocess.run(['git', 'config', '--global', '--includes', '--path', '--get', 'core.excludesFile'],
                             capture_output=True, text=True)
     if result.returncode == 0:
         configured = result.stdout.removesuffix('\n')
