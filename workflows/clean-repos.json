@@ -32,18 +32,18 @@
       "codex": "**Every script call:** allow enough time and redirect to a file, then read the file. Scans across many repos exceed the default timeout, and the Bash tool's captured output has been seen to come back empty — even without backgrounding.\n"
     },
     {
-      "shared": "\n## Step 1 — Scan (read-only)\n\n```bash\n"
+      "shared": "\n## Step 1 — Scan (read-only)\n\nCreate a unique log directory outside the worktrees that apply may remove. Read the logs and delete this directory when finished, including on failure or when cleanup is cancelled; retain it only for diagnosis and report its path and reason.\n\n```bash\ncleanup_log_dir=\"$(mktemp -d \"${TMPDIR:-/tmp}/agent-clean-repos.XXXXXX\")\"\nprintf '%s\\n' \"$cleanup_log_dir\"\n```\n\nUse the printed absolute directory in subsequent tool calls; shell variables do not persist between calls. Replace `$cleanup_log_dir` below with that literal path.\n\n```bash\n"
     },
     {
-      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clean-repos.sh\" scan \"$HOME/git\" [flags] > /tmp/clean-repos-scan.txt 2>&1; echo \"exit:$?\" >> /tmp/clean-repos-scan.txt\n",
-      "codex": "\"$SKILL_REPO_ROOT/scripts/clean-repos.sh\" scan \"$HOME/git\" [flags] > /tmp/clean-repos-scan.txt 2>&1; echo \"exit:$?\" >> /tmp/clean-repos-scan.txt\n"
+      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clean-repos.sh\" scan \"$HOME/git\" [flags] > \"$cleanup_log_dir/scan.txt\" 2>&1; echo \"exit:$?\" >> \"$cleanup_log_dir/scan.txt\"\n",
+      "codex": "\"$SKILL_REPO_ROOT/scripts/clean-repos.sh\" scan \"$HOME/git\" [flags] > \"$cleanup_log_dir/scan.txt\" 2>&1; echo \"exit:$?\" >> \"$cleanup_log_dir/scan.txt\"\n"
     },
     {
       "shared": "```\n\nPrints one block per repo with candidates (clean repos are silent), then a `summary:` line. Besides plain `local:` and `remote:` branches and `worktrees:`, these candidate types need attention:\n- `local-squash-merged-verified:` — merged per `gh`, and the branch's content is confirmed on trunk. `apply` deletes these with `git branch -D`.\n- `local-squash-merged-unverified:` — merged per `gh`, but the branch's own patch differs from the merge commit. `apply` always skips these; the user can `git branch -D` them after checking the PR landed.\n- `dirty-worktree:` — branch looks merged but the worktree has uncommitted edits, summarized as tracked/untracked counts (untracked files listed). Excluded from deletion; that diff is the only copy of the work. Never discard it without the user's explicit say-so.\n- `worktrees-new-empty:` — branch created but never committed to. Excluded from deletion.\n- `running-processes:` — processes started from a worktree that `apply` will kill before removing it.\n- `open-prs-unknown` — `gh` could not list open PRs, so remote deletion is skipped for that repo (deleting a PR's branch closes it).\n\n## Step 2 — Confirm\n\nShow the candidates grouped by repo and wait for explicit confirmation. Remote deletion is not reversible.\n\n## Step 3 — Apply\n\n```bash\n"
     },
     {
-      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clean-repos.sh\" apply \"$HOME/git\" [same flags] > /tmp/clean-repos-apply.txt 2>&1; echo \"exit:$?\" >> /tmp/clean-repos-apply.txt\n",
-      "codex": "\"$SKILL_REPO_ROOT/scripts/clean-repos.sh\" apply \"$HOME/git\" [same flags] > /tmp/clean-repos-apply.txt 2>&1; echo \"exit:$?\" >> /tmp/clean-repos-apply.txt\n"
+      "claude": "\"${CLAUDE_PLUGIN_ROOT}/scripts/clean-repos.sh\" apply \"$HOME/git\" [same flags] > \"$cleanup_log_dir/apply.txt\" 2>&1; echo \"exit:$?\" >> \"$cleanup_log_dir/apply.txt\"\n",
+      "codex": "\"$SKILL_REPO_ROOT/scripts/clean-repos.sh\" apply \"$HOME/git\" [same flags] > \"$cleanup_log_dir/apply.txt\" 2>&1; echo \"exit:$?\" >> \"$cleanup_log_dir/apply.txt\"\n"
     },
     {
       "shared": "```\n\n`apply` re-derives candidates fresh (new fetch, new merge check) and removes worktrees before their branch. It uses `git branch -D` only after confirming the branch is an ancestor of `origin/<trunk>` or that its content is already on trunk. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`, `delete-failed`, `push-delete-failed` or `open-prs-unknown` — relay them, don't override.\n\n## Output format\n\n1. **Scanned** — repos scanned / with candidates / clean / errored (with brief reason)\n2. **Deleted** — per repo: local branches, remote branches, worktrees\n3. **Skipped** — with reason\n"
