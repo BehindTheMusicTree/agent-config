@@ -218,7 +218,7 @@ def check_profile(profile, releases, claude_home, codex_home):
     sync.plugins.verify_sources(prepared, claude_home)
     _, links, changes = sync.plan_sources(sources, claude_home, codex_home)
     if links or changes:
-        raise ValueError('Skills, instructions, the Codex compaction threshold or the Codex hooks differ from active sources')
+        raise ValueError('Skills, instructions, global Git ignores, the Codex compaction threshold or the Codex hooks differ from active sources')
     return sources
 
 
@@ -253,6 +253,9 @@ def check_remote(repo, version, releases, claude_home, codex_home):
         raise ValueError('Codex compaction threshold differs from the Claude compaction window')
     if sync.codex_hooks.prepare(codex_home, source):
         raise ValueError('Codex graphify hook differs from the active release')
+    # Older published installers predate the global Git ignore contract.
+    if hasattr(sync.instructions, 'prepare_git_ignore') and sync.instructions.prepare_git_ignore():
+        raise ValueError('Global Git ignores differ from the active release')
     return source
 
 

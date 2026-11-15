@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -136,6 +137,33 @@ def snapshot(path):
     return {'text': path.read_text(encoding='utf-8'), 'mode': path.stat().st_mode & 0o777}
 
 
+def prepare_git_ignore():
+    """Append the scratch-directory rule to Git's global excludes file without changing Git config."""
+    result = subprocess.run(['git', 'config', '--global', '--includes', '--path', '--get', 'core.excludesFile'],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        configured = result.stdout.removesuffix('\n')
+        if not configured:
+            raise ValueError('Global core.excludesFile must not be empty')
+        path = Path(configured)
+    elif result.returncode == 1:
+        path = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config') / 'git/ignore'
+    else:
+        raise ValueError(f'Cannot read global Git excludes configuration: {result.stderr.strip()}')
+    if not path.is_absolute():
+        raise ValueError(f'Global Git excludes file must use an absolute path: {path}')
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ValueError(f'Refusing to replace symlinked or non-file Git excludes: {path}')
+    before = snapshot(path)
+    current = before['text'] if before else ''
+    rules = [line for line in current.splitlines() if line and not line.startswith('#')]
+    if rules and rules[-1] == '.agent-tmp/':
+        return []
+    separator = '\n' if current and not current.endswith('\n') else ''
+    after = {'text': current + separator + '.agent-tmp/\n', 'mode': before['mode'] if before else 0o600}
+    return [(path, before, after)]
+
+
 def write_snapshot(path, value):
     if value is None:
         path.unlink(missing_ok=True)
@@ -218,17 +246,19 @@ def main():
             if not args.restore:
                 raise ValueError('Resolve the active Codex global override before installation')
         changes.extend(prepare(home, render(ROOT, agent), args.restore))
+    if not args.restore:
+        changes.extend(prepare_git_ignore())
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     if args.apply or args.restore:
         apply(changes)
-        print(f'{len(changes)} files updated; original contents are saved in {STATE} in each agent home.')
+        print(f'{len(changes)} files updated; original agent entrypoints are saved in {STATE} in each agent home.')
     elif args.check:
         if changes:
             for path, _, _ in changes:
                 print(f'Out of date: {path}')
             return 1
-        print('Installed instructions match shared sources')
+        print('Installed instructions and global Git ignores match shared sources')
     else:
         for path, before, after in changes:
             if path.name == STATE:

@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,6 +19,14 @@ class LocalReleaseTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='local release ')
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name).resolve()
+        environment = patch.dict(os.environ, {
+            'HOME': str(self.base / 'home'),
+            'XDG_CONFIG_HOME': str(self.base / 'xdg'),
+            'GIT_CONFIG_GLOBAL': str(self.base / 'gitconfig'),
+            'GIT_CONFIG_NOSYSTEM': '1',
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
         self.repo = self.base / 'repo'
         self.repo.mkdir()
         self.git('init', '-q')
@@ -53,6 +62,30 @@ class LocalReleaseTests(unittest.TestCase):
         self.assertIn(str(source), (self.codex / 'AGENTS.md').read_text())
         self.assertTrue((self.claude / 'CLAUDE.md').is_file())
         self.assertEqual(self.execute(), source)
+
+    def test_installs_global_ignore_and_reports_drift(self):
+        with patch.object(sync.plugins, 'prepare_sources', return_value={}), patch.object(
+                sync.plugins, 'install_sources'):
+            sync.synchronize_sources({'public': self.repo}, self.claude, self.codex, self.base / 'marketplaces')
+        ignore = self.base / 'xdg/git/ignore'
+        self.assertEqual(ignore.read_text(), '.agent-tmp/\n')
+        self.assertEqual(sync.plan_sources({'public': self.repo}, self.claude, self.codex)[2], [])
+        ignore.write_text('personal-rule\n')
+        changes = sync.plan_sources({'public': self.repo}, self.claude, self.codex)[2]
+        self.assertEqual([change[0] for change in changes], [ignore])
+        with patch.object(sync.plugins, 'prepare_sources', return_value={}), patch.object(
+                sync.plugins, 'install_sources'):
+            sync.synchronize_sources({'public': self.repo}, self.claude, self.codex, self.base / 'marketplaces')
+        self.assertEqual(ignore.read_text(), 'personal-rule\n.agent-tmp/\n')
+
+    def test_plugin_failure_restores_global_ignore(self):
+        ignore = self.base / 'xdg/git/ignore'
+        ignore.parent.mkdir(parents=True)
+        ignore.write_text('personal-rule\n')
+        self.plugin.side_effect = RuntimeError('installation failed')
+        with self.assertRaises(RuntimeError):
+            self.execute()
+        self.assertEqual(ignore.read_text(), 'personal-rule\n')
 
     def test_derives_codex_compaction_threshold_and_rolls_it_back(self):
         self.claude.mkdir()
@@ -104,6 +137,7 @@ class LocalReleaseTests(unittest.TestCase):
         self.assertEqual((self.codex / 'AGENTS.md').read_text(), 'original Codex')
         self.assertFalse((self.codex / 'skills/example').is_symlink())
         self.assertFalse((self.codex / 'skills' / sync.skills.STATE).exists())
+        self.assertFalse((self.base / 'xdg/git/ignore').exists())
 
     def test_preflight_override_prevents_link_changes(self):
         self.codex.mkdir()

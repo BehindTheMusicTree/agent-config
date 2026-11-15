@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -247,7 +248,13 @@ class InstructionsTests(unittest.TestCase):
             sys.executable, str(ROOT / 'scripts/install-instructions.py'),
             '--claude-home', str(self.home), '--codex-home', str(self.base / 'codex home'),
             *args,
-        ], text=True, capture_output=True)
+        ], text=True, capture_output=True, env={
+            **os.environ,
+            'HOME': str(self.base),
+            'XDG_CONFIG_HOME': str(self.base / 'xdg'),
+            'GIT_CONFIG_GLOBAL': str(self.base / 'gitconfig'),
+            'GIT_CONFIG_NOSYSTEM': '1',
+        })
 
     def test_cli_dry_run_apply_check_restore(self):
         self.assertEqual(self.cli().returncode, 0)
