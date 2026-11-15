@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Instruction installation and release synchronization manage the global Git exclusion for `.agent-tmp/`, removing per-task ignore setup while preserving personal rules.
 - Keep task scratch files in ignored worktree storage; session cleanup accounts for external artifacts and removes its own temporary logs.
 
 ## [3.1.2] - 2026-11-14
