@@ -84,11 +84,13 @@ rollback_scratch_setup() {
   fi
   exit 0
 }
-if ! git -C "$wt_abs" check-ignore -q .agent-tmp/probe; then
-  exclude="$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude"
-  printf '\n.agent-tmp/\n' >> "$exclude" || { rollback_scratch_setup scratch-exclude-write-failed; }
-  git -C "$wt_abs" check-ignore -q .agent-tmp/probe || { rollback_scratch_setup scratch-not-ignored; }
-fi
+for directory in .agent-tmp .agent-plans; do
+  if ! git -C "$wt_abs" check-ignore -q "$directory/probe"; then
+    exclude="$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+    printf '\n%s/\n' "$directory" >> "$exclude" || { rollback_scratch_setup "$directory-exclude-write-failed"; }
+    git -C "$wt_abs" check-ignore -q "$directory/probe" || { rollback_scratch_setup "$directory-not-ignored"; }
+  fi
+done
 
 # --- discover + copy gitignored env files ---
 mapfile -t env_files < <(git -C "$repo_root" status --ignored --porcelain=v1 | awk '/^!!/{print $2}' | grep -E '(^|/)\.env(\.[A-Za-z0-9._-]+)?$')

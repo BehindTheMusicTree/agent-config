@@ -47,7 +47,8 @@ class WorktreePathsTests(unittest.TestCase):
             output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'fix/scratch', 'main', cwd=root)
             self.assertIn('status=ok', output)
             linked = root / '.codex/worktrees/fix-scratch'
-            run('git', 'check-ignore', '-q', '.agent-tmp/probe', cwd=linked)
+            for directory_name in ('.agent-tmp', '.agent-plans'):
+                run('git', 'check-ignore', '-q', directory_name + '/probe', cwd=linked)
             self.assertEqual(local_ignore.read_text(), '')
 
     def test_conflicting_scratch_rule_cleans_up_new_worktree(self):
@@ -60,10 +61,23 @@ class WorktreePathsTests(unittest.TestCase):
             run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
                 'commit', '-qm', 'initial', cwd=root)
             output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'fix/conflict', 'main', cwd=root)
-            self.assertIn('status=blocked reason=scratch-not-ignored', output)
+            self.assertIn('status=blocked reason=.agent-tmp-not-ignored', output)
             self.assertFalse((root / '.codex/worktrees/fix-conflict').exists())
             result = subprocess.run(['git', 'show-ref', '--verify', '--quiet', 'refs/heads/fix/conflict'], cwd=root)
             self.assertNotEqual(result.returncode, 0)
+
+    def test_conflicting_plan_rule_cleans_up_new_worktree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'repo'
+            root.mkdir()
+            run('git', 'init', '-q', '-b', 'main', cwd=root)
+            (root / '.gitignore').write_text('!.agent-plans/\n')
+            run('git', 'add', '.gitignore', cwd=root)
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-qm', 'initial', cwd=root)
+            output = run(str(SCRIPTS / 'new-worktree-setup.sh'), 'codex', 'fix/conflict', 'main', cwd=root)
+            self.assertIn('status=blocked reason=.agent-plans-not-ignored', output)
+            self.assertFalse((root / '.codex/worktrees/fix-conflict').exists())
 
     def test_github_flow_documentation_does_not_imply_gitflow(self):
         with tempfile.TemporaryDirectory() as directory:

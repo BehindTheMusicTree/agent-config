@@ -40,7 +40,7 @@ class GlobalGitIgnoreTests(unittest.TestCase):
         self.assertFalse(self.default.exists())
         installer.apply(changes)
         self.assertEqual(installer.prepare_git_ignore(), [])
-        self.assertEqual(self.default.read_text(), '.agent-tmp/\n')
+        self.assertEqual(self.default.read_text(), '.agent-tmp/\n.agent-plans/\n')
         repo = self.base / 'repo'
         self.git('init', '-q', str(repo))
         self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
@@ -48,7 +48,7 @@ class GlobalGitIgnoreTests(unittest.TestCase):
         linked = self.base / 'worktree'
         self.git('worktree', 'add', '--detach', str(linked), cwd=repo)
         for checkout in (repo, linked):
-            for relative in ('.agent-tmp/capture.png', 'nested/.agent-tmp/trace.json'):
+            for relative in ('.agent-tmp/capture.png', 'nested/.agent-tmp/trace.json', '.agent-plans/topic.md'):
                 scratch = checkout / relative
                 scratch.parent.mkdir(parents=True, exist_ok=True)
                 scratch.touch()
@@ -63,7 +63,7 @@ class GlobalGitIgnoreTests(unittest.TestCase):
         self.git('config', '--global', 'core.excludesFile', '~/custom ignores')
         config = (self.home / 'gitconfig').read_bytes()
         installer.apply(installer.prepare_git_ignore())
-        self.assertEqual(custom.read_text(), 'personal-rule\n.agent-tmp/\n!.agent-tmp/\n.agent-tmp/\n')
+        self.assertEqual(custom.read_text(), 'personal-rule\n.agent-tmp/\n!.agent-tmp/\n.agent-plans/\n')
         self.assertEqual(custom.stat().st_mode & 0o777, 0o640)
         self.assertEqual((self.home / 'gitconfig').read_bytes(), config)
         self.assertEqual(installer.prepare_git_ignore(), [])
@@ -72,7 +72,7 @@ class GlobalGitIgnoreTests(unittest.TestCase):
     def test_home_default_when_xdg_is_unset(self):
         with patch.dict(os.environ, {'XDG_CONFIG_HOME': ''}):
             installer.apply(installer.prepare_git_ignore())
-        self.assertEqual((self.home / '.config/git/ignore').read_text(), '.agent-tmp/\n')
+        self.assertEqual((self.home / '.config/git/ignore').read_text(), '.agent-tmp/\n.agent-plans/\n')
 
     def test_global_config_includes_are_respected(self):
         included = self.home / 'included config'
@@ -80,7 +80,7 @@ class GlobalGitIgnoreTests(unittest.TestCase):
         self.git('config', '--file', str(included), 'core.excludesFile', str(custom))
         self.git('config', '--global', 'include.path', str(included))
         installer.apply(installer.prepare_git_ignore())
-        self.assertEqual(custom.read_text(), '.agent-tmp/\n')
+        self.assertEqual(custom.read_text(), '.agent-tmp/\n.agent-plans/\n')
         self.assertFalse(self.default.exists())
         repo = self.base / 'repo'
         self.git('init', '-q', str(repo))
@@ -88,7 +88,14 @@ class GlobalGitIgnoreTests(unittest.TestCase):
 
     def test_existing_rule_with_trailing_comments_is_unchanged(self):
         self.default.parent.mkdir(parents=True)
-        self.default.write_text('other-rule\n.agent-tmp/\n\n# personal comment\n')
+        self.default.write_text('other-rule\n.agent-tmp/\n.agent-plans/\n\n# personal comment\n')
+        self.assertEqual(installer.prepare_git_ignore(), [])
+
+    def test_appends_only_missing_rules(self):
+        self.default.parent.mkdir(parents=True)
+        self.default.write_text('.agent-plans/\n# personal rule\n*.bak\n')
+        installer.apply(installer.prepare_git_ignore())
+        self.assertEqual(self.default.read_text(), '.agent-plans/\n# personal rule\n*.bak\n.agent-tmp/\n')
         self.assertEqual(installer.prepare_git_ignore(), [])
 
     def test_rejects_symlinks_and_directories(self):
@@ -131,7 +138,7 @@ class GlobalGitIgnoreTests(unittest.TestCase):
                 self.assertEqual(installer.main(), 0)
             with patch.object(sys, 'argv', arguments + ['--restore']):
                 self.assertEqual(installer.main(), 0)
-        self.assertEqual(self.default.read_text(), 'personal-rule\n.agent-tmp/\n')
+        self.assertEqual(self.default.read_text(), 'personal-rule\n.agent-tmp/\n.agent-plans/\n')
 
 
 if __name__ == '__main__':

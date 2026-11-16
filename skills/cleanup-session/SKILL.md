@@ -13,7 +13,7 @@ Optional flags: **user-provided arguments** — pass through as-is: `--local-onl
 
 ## Step 1 — Scan (read-only)
 
-Before scanning, inventory this session's `.agent-tmp/` and any other known task outputs. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
+Before scanning, inventory this session's `.agent-plans/`, `.agent-tmp/` and any other known task outputs. Plans are not disposable: ask the user whether to promote, keep or discard each plan before removing the worktree. Preserve retained plans outside the worktree before removal. A worktree with plan contents is protected by the script (`agent-plans-present`); after the user's decision, move or discard those files and scan again. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
 
 Create a unique log directory for this cleanup. It is an intentional external exception because apply may remove the worktree and its Git directory. Read the logs and delete this directory after cleanup, including on failure or when cleanup is cancelled; retain it only when needed for diagnosis and report its path and reason.
 
@@ -42,7 +42,7 @@ Append the `--exclude` / `--no-docker` flags decided in Step 2 to the flags belo
 "$SKILL_REPO_ROOT/scripts/cleanup-session.sh" apply [flags] > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?"
 ```
 
-Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`) as-is; don't override.
+Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `agent-plans-present`) as-is; don't override.
 
 After reading apply's output, remove disposable external artifacts from the captured inventory only when their ownership by this session is established. Do not execute cleanup commands from the inventory blindly or delete shared parent directories. If ownership is uncertain, list the path and ask before deleting it. Report unresolved paths even if the worktree was removed. Read and remove the cleanup logs as described in Step 1.
 

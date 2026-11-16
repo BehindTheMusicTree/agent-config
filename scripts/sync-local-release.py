@@ -22,6 +22,7 @@ skills = load('codex_skills', 'sync-codex-skills.py')
 instructions = load('global_instructions', 'install-instructions.py')
 plugins = load('claude_plugin', 'sync-claude-plugin.py')
 compact = load('compact_limit', 'sync-compact-limit.py')
+plan_directory = load('plan_directory', 'sync-plan-directory.py')
 codex_hooks = load('codex_hooks', 'sync-codex-hooks.py')
 
 
@@ -38,6 +39,7 @@ def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sourc
         changes.extend(compact.prepare(claude_home, codex_home, compact_root(sources)))
     changes.extend(codex_hooks.prepare(codex_home, hooks_root(sources)))
     changes.extend(instructions.prepare_git_ignore())
+    changes.extend(plan_directory.prepare(claude_home))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     return desired, link_changes, changes
@@ -71,6 +73,7 @@ def synchronize_source(source, claude_home, codex_home, adopt_from=None):
     changes.extend(compact.prepare(claude_home, codex_home, source))
     changes.extend(codex_hooks.prepare(codex_home, source))
     changes.extend(instructions.prepare_git_ignore())
+    changes.extend(plan_directory.prepare(claude_home))
     if len({path for path, _, _ in changes}) != len(changes):
         raise ValueError('Agent home directories must be distinct')
     _apply_plan(destination, desired, link_changes, changes,

@@ -144,6 +144,33 @@ worktree_pids() {
     }'
 }
 
+# Ignored plans survive cleanup until the user decides where they belong.
+worktree_has_plans() {
+  local directory="$1/.agent-plans" contents
+  [[ -L "$directory" ]] && return 0
+  [[ -e "$directory" ]] || return 1
+  [[ -d "$directory" && -r "$directory" && -x "$directory" ]] || return 0
+  contents="$(find "$directory" -mindepth 1 ! -path "$directory/.gitignore" -print -quit)" || return 0
+  [[ -n "$contents" ]]
+}
+
+worktree_plan_summary() {
+  local directory="$1/.agent-plans" entry count=0 listed="" quoted
+  if [[ -L "$directory" || ! -d "$directory" || ! -r "$directory" || ! -x "$directory" ]]; then
+    echo 'plans=present (cannot inventory)'
+    return
+  fi
+  while IFS= read -r -d '' entry; do
+    count=$((count + 1))
+    if [[ $count -le 5 ]]; then
+      printf -v quoted '%q' "${entry#"$directory/"}"
+      listed+="${listed:+, }$quoted"
+    fi
+  done < <(find "$directory" -mindepth 1 ! -path "$directory/.gitignore" -print0)
+  [[ $count -gt 5 ]] && listed+=" (+$((count - 5)) more)"
+  echo "plans=$count: $listed"
+}
+
 # One-line description of a worktree's uncommitted state, so the user can tell
 # throwaway edits (tracked deletions of build output) from real work (new files).
 worktree_dirty_summary() {
@@ -167,6 +194,9 @@ worktree_dirty_summary() {
   if [[ $untracked -gt 0 ]]; then
     summary+=": $listed"
     [[ $untracked -gt $shown ]] && summary+=" (+$((untracked - shown)) more)"
+  fi
+  if worktree_has_plans "$path"; then
+    summary+=" $(worktree_plan_summary "$path")"
   fi
   echo "$summary"
 }
@@ -369,6 +399,7 @@ for repo in "$git_root"/*/; do
   # pull it out of every deletion candidate list, report it separately.
   dirty_worktrees=()
   dirty_details=()
+  dirty_reasons=()
   new_empty_worktrees=()
   protected_branches=()
   for i in "${!worktree_branches[@]}"; do
@@ -376,9 +407,14 @@ for repo in "$git_root"/*/; do
     path="${worktree_paths[$i]}"
     (contains "$br" "${kept_local[@]}" || contains "$br" "${kept_local_squash_verified[@]}" \
       || contains "$br" "${kept_local_squash_unverified[@]}") || continue
-    if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]]; then
+    if worktree_has_plans "$path" || [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]]; then
       dirty_worktrees+=("$path:$br")
       dirty_details+=("$(worktree_dirty_summary "$path")")
+      if worktree_has_plans "$path"; then
+        dirty_reasons+=(agent-plans-present)
+      else
+        dirty_reasons+=(uncommitted-changes)
+      fi
       protected_branches+=("$br")
     elif worktree_branch_is_new_empty "$br"; then
       new_empty_worktrees+=("$path:$br")
@@ -426,13 +462,18 @@ for repo in "$git_root"/*/; do
       [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%%:*}: $pids"
     done
     for i in "${!dirty_worktrees[@]}"; do
-      echo "  dirty-worktree (uncommitted changes, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
+      echo "  dirty-worktree (changes or plans, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
     done
     $remote_skipped_unknown && echo "  open-prs-unknown (gh pr list failed, remote deletion skipped for this repo)"
     [[ ${#new_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-new-empty (branch created but never committed to, branch kept, not touched): ${new_empty_worktrees[*]}"
   else
     for wt in "${worktree_removals[@]}"; do
       path="${wt%%:*}"
+      if worktree_has_plans "$path"; then
+        echo "repo=$name skip-worktree=$path reason=agent-plans-present"
+        skipped=$((skipped + 1))
+        continue
+      fi
       pids="$(worktree_pids "$path" | tr '\n' ' ')"
       if [[ -n "${pids// /}" ]]; then
         # shellcheck disable=SC2086
@@ -443,6 +484,11 @@ for repo in "$git_root"/*/; do
         [[ -n "${pids// /}" ]] && kill -9 $pids 2>/dev/null || true
         echo "repo=$name killed-processes=$path"
       fi
+      if worktree_has_plans "$path"; then
+        echo "repo=$name skip-worktree=$path reason=agent-plans-present"
+        skipped=$((skipped + 1))
+        continue
+      fi
       if git worktree remove "$path" 2>/dev/null; then
         echo "repo=$name removed-worktree=$path"
         removed_worktrees=$((removed_worktrees + 1))
@@ -451,8 +497,9 @@ for repo in "$git_root"/*/; do
         skipped=$((skipped + 1))
       fi
     done
-    for dw in "${dirty_worktrees[@]}"; do
-      echo "repo=$name skip-worktree=${dw%%:*} branch=${dw#*:} reason=uncommitted-changes"
+    for i in "${!dirty_worktrees[@]}"; do
+      dw="${dirty_worktrees[$i]}"
+      echo "repo=$name skip-worktree=${dw%%:*} branch=${dw#*:} reason=${dirty_reasons[$i]}"
       skipped=$((skipped + 1))
     done
     for b in "${kept_local[@]}"; do

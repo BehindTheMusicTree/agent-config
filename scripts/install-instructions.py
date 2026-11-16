@@ -138,7 +138,7 @@ def snapshot(path):
 
 
 def prepare_git_ignore():
-    """Append the scratch-directory rule to Git's global excludes file without changing Git config."""
+    """Append the agent-directory rules to Git's global excludes file without changing Git config."""
     result = subprocess.run(['git', 'config', '--global', '--includes', '--path', '--get', 'core.excludesFile'],
                             capture_output=True, text=True)
     if result.returncode == 0:
@@ -157,10 +157,11 @@ def prepare_git_ignore():
     before = snapshot(path)
     current = before['text'] if before else ''
     rules = [line for line in current.splitlines() if line and not line.startswith('#')]
-    if rules and rules[-1] == '.agent-tmp/':
+    missing = [rule for rule in ('.agent-tmp/', '.agent-plans/') if rule not in rules]
+    if not missing:
         return []
     separator = '\n' if current and not current.endswith('\n') else ''
-    after = {'text': current + separator + '.agent-tmp/\n', 'mode': before['mode'] if before else 0o600}
+    after = {'text': current + separator + ''.join(rule + '\n' for rule in missing), 'mode': before['mode'] if before else 0o600}
     return [(path, before, after)]
 
 
