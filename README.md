@@ -12,7 +12,7 @@ Use Python 3.10 or later. Create a virtual environment, install `requirements-de
 
 Run `scripts/install-codex-skills.sh` from a persistent checkout to install Codex skills. Preview shared global instructions using `python3 scripts/install-instructions.py`; install them using `--apply`. Keep this checkout available. Generated instructions must be changed through their maintained sources.
 
-Instruction installation and release synchronization also append `.agent-tmp/` to the global Git excludes file, preserving existing rules and permissions. They use the global `core.excludesFile` when configured, otherwise `$XDG_CONFIG_HOME/git/ignore` (default `~/.config/git/ignore`), without changing Git configuration. Repository or worktree configuration can override the global excludes file. Worktree setup adds a repository-local exclusion when needed; verify each scratch path before creating it, since repository rules can override individual paths. If worktree setup reports `scratch-not-ignored`, resolve the conflicting rule before retrying. If it reports `cleanup=manual`, inspect the reported worktree and branch before removing them and retrying. Preview and `--check` include this file, and release synchronization rolls it back if installation fails. Empty or relative configured paths, symlinks and non-file targets fail explicitly. `--restore` restores agent entrypoints and leaves the global ignore rule in place.
+Instruction installation and release synchronization also append `.agent-tmp/` and `.agent-plans/` to the global Git excludes file, preserving existing rules and permissions. They use the global `core.excludesFile` when configured, otherwise `$XDG_CONFIG_HOME/git/ignore` (default `~/.config/git/ignore`), without changing Git configuration. Repository or worktree configuration can override the global excludes file. Worktree setup adds a repository-local exclusion when needed; verify each scratch path before creating it, since repository rules can override individual paths. If worktree setup reports `.agent-tmp-not-ignored` or `.agent-plans-not-ignored`, resolve the conflicting rule before retrying. If it reports `cleanup=manual`, inspect the reported worktree and branch before removing them and retrying. Preview and `--check` include this file, and release synchronization rolls it back if installation fails. Empty or relative configured paths, symlinks and non-file targets fail explicitly. `--restore` restores agent entrypoints and leaves the global ignore rules in place.
 
 Claude can install the plugin using `/plugin install agent-config --marketplace BehindTheMusicTree/agent-config`.
 
@@ -47,6 +47,17 @@ Pour les règles à portée, `.agents/scopes.json` associe chaque nom à un obje
 Use `$review` in Codex or `/agent-config:review` in Claude to review a branch, commit range, or existing PR without changing it. `create-pr` invokes the same workflow on its final state. Independence requires a fresh reviewer session when available.
 
 ## Task artifacts
+
+Plans and design proposals belong in `.agent-plans/<topic>.md` in the task worktree, unless the user asks to commit them. Each org repo tracks `.agent-plans/.gitignore` and `.agent-tmp/.gitignore` with exactly:
+
+```gitignore
+*
+!.gitignore
+```
+
+Claude Code release synchronization sets `plansDirectory` to `.agent-plans` in user settings, preserving all other keys and refusing a different existing value. Preview with `python3 scripts/sync-plan-directory.py`, write with `--apply`, or check with `--check`. Existing files in `~/.claude/plans/` remain untouched.
+
+Only the ignore files are committed. The global rules remain a fallback outside the org. Verify each actual path is ignored before writing. Plans are not disposable: before removing a worktree, inventory `.agent-plans/` and ask whether to promote, keep or discard its files. Preserve retained plans outside the worktree first. `clean-repos` protects worktrees with plan contents even when Git reports them clean.
 
 Task scratch files belong in the worktree's ignored `.agent-tmp/` directory. External exceptions are recorded in `.agent-tmp/external-artifacts.md` with exact paths, ownership and cleanup actions. Before worktree removal, `cleanup-session` inventories these files, preserves requested deliverables and accounts for external leftovers; this is an agent check, not an automatic filesystem scan. Its unique external logs are removed after reading, including on failure. Shared tool installations, caches, conversation history and explicit workflow storage contracts keep their own lifecycle.
 

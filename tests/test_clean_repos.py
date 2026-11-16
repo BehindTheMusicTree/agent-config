@@ -167,6 +167,42 @@ class CleanReposTests(unittest.TestCase):
         self.assertTrue(path.exists())
         self.assertIn('feature/d', git(self.repo, 'branch', '--list', 'feature/d'))
 
+    def test_ignored_plan_protects_worktree_and_branch(self):
+        path = self.add_worktree('feature/plans', merged=True)
+        plans = path / '.agent-plans'
+        plans.mkdir()
+        (plans / '.gitignore').write_text('*\n!.gitignore\n')
+        git(path, 'add', '-f', '.agent-plans/.gitignore')
+        git(path, 'commit', '-qm', 'add plan directory')
+        git(self.repo, 'merge', '-q', '--ff-only', 'feature/plans')
+        git(self.repo, 'push', '-q', 'origin', 'main')
+        (plans / 'regional-multiparentality.md').write_text('plan\n')
+        self.assertEqual(git(path, 'status', '--porcelain'), '')
+        scan = self.run_script('scan')
+        self.assertIn('dirty-worktree', scan)
+        self.assertIn('plans=1: regional-multiparentality.md', scan)
+        output = self.run_script('apply')
+        self.assertIn('reason=agent-plans-present', output)
+        self.assertTrue((plans / 'regional-multiparentality.md').exists())
+        self.assertIn('feature/plans', git(self.repo, 'branch', '--list', 'feature/plans'))
+        (plans / 'regional-multiparentality.md').unlink()
+        output = self.run_script('apply')
+        self.assertIn(f'removed-worktree={path}', output)
+
+    def test_nested_plan_protects_worktree(self):
+        path = self.add_worktree('feature/nested-plans', merged=True)
+        plans = path / 'nested' / '.agent-plans'
+        plans.mkdir(parents=True)
+        (plans / 'topic.md').write_text('plan\n')
+        self.assertIn('reason=agent-plans-present', self.run_script('apply'))
+        self.assertTrue((plans / 'topic.md').exists())
+
+    def test_plan_directory_symlink_is_protected(self):
+        path = self.add_worktree('feature/symlink', merged=True)
+        (path / '.agent-plans').symlink_to(path / 'missing', target_is_directory=True)
+        self.assertIn('reason=agent-plans-present', self.run_script('apply'))
+        self.assertTrue(path.exists())
+
     def test_deletions_only_worktree_is_labelled_and_still_protected(self):
         path = self.add_worktree('feature/d', merged=True)
         (path / 'work.txt').unlink()

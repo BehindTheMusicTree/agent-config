@@ -68,7 +68,7 @@ class LocalReleaseTests(unittest.TestCase):
                 sync.plugins, 'install_sources'):
             sync.synchronize_sources({'public': self.repo}, self.claude, self.codex, self.base / 'marketplaces')
         ignore = self.base / 'xdg/git/ignore'
-        self.assertEqual(ignore.read_text(), '.agent-tmp/\n')
+        self.assertEqual(ignore.read_text(), '.agent-tmp/\n.agent-plans/\n')
         self.assertEqual(sync.plan_sources({'public': self.repo}, self.claude, self.codex)[2], [])
         ignore.write_text('personal-rule\n')
         changes = sync.plan_sources({'public': self.repo}, self.claude, self.codex)[2]
@@ -76,7 +76,31 @@ class LocalReleaseTests(unittest.TestCase):
         with patch.object(sync.plugins, 'prepare_sources', return_value={}), patch.object(
                 sync.plugins, 'install_sources'):
             sync.synchronize_sources({'public': self.repo}, self.claude, self.codex, self.base / 'marketplaces')
-        self.assertEqual(ignore.read_text(), 'personal-rule\n.agent-tmp/\n')
+        self.assertEqual(ignore.read_text(), 'personal-rule\n.agent-tmp/\n.agent-plans/\n')
+
+    def test_manages_plan_directory_and_rolls_back_settings(self):
+        self.claude.mkdir()
+        path = self.claude / 'settings.json'
+        original = '{"model": "opus"}\n'
+        path.write_text(original)
+        self.plugin.side_effect = RuntimeError('installation failed')
+        with self.assertRaises(RuntimeError):
+            self.execute()
+        self.assertEqual(path.read_text(), original)
+        self.plugin.side_effect = None
+        source = self.execute()
+        self.assertEqual(json.loads(path.read_text()), {'model': 'opus', 'plansDirectory': '.agent-plans'})
+        changes = sync.plan_sources({'public': source}, self.claude, self.codex)[2]
+        self.assertNotIn(path, [change[0] for change in changes])
+
+    def test_refuses_conflicting_plan_directory_before_mutation(self):
+        self.claude.mkdir()
+        path = self.claude / 'settings.json'
+        path.write_text('{"plansDirectory": "custom"}')
+        with self.assertRaisesRegex(ValueError, 'refusing to overwrite'):
+            self.execute()
+        self.assertFalse((self.codex / 'skills/example').exists())
+        self.plugin.assert_not_called()
 
     def test_plugin_failure_restores_global_ignore(self):
         ignore = self.base / 'xdg/git/ignore'
