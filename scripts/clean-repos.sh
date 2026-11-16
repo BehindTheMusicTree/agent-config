@@ -146,12 +146,16 @@ worktree_pids() {
 
 # Ignored plans survive cleanup until the user decides where they belong.
 worktree_has_plans() {
-  local directory="$1/.agent-plans" contents
-  [[ -L "$directory" ]] && return 0
-  [[ -e "$directory" ]] || return 1
-  [[ -d "$directory" && -r "$directory" && -x "$directory" ]] || return 0
-  contents="$(find "$directory" -mindepth 1 ! -path "$directory/.gitignore" -print -quit)" || return 0
-  [[ -n "$contents" ]]
+  local directory contents directories
+  directories="$(find "$1" -name .git -prune -o -name .agent-plans -print)" || return 0
+  while IFS= read -r directory; do
+    [[ -n "$directory" ]] || continue
+    [[ -L "$directory" ]] && return 0
+    [[ -d "$directory" && -r "$directory" && -x "$directory" ]] || return 0
+    contents="$(find "$directory" -mindepth 1 ! -path "$directory/.gitignore" -print -quit)" || return 0
+    [[ -n "$contents" ]] && return 0
+  done <<< "$directories"
+  return 1
 }
 
 worktree_plan_summary() {
@@ -168,7 +172,11 @@ worktree_plan_summary() {
     fi
   done < <(find "$directory" -mindepth 1 ! -path "$directory/.gitignore" -print0)
   [[ $count -gt 5 ]] && listed+=" (+$((count - 5)) more)"
-  echo "plans=$count: $listed"
+  if [[ $count -eq 0 ]]; then
+    echo 'plans=present (nested directory)'
+  else
+    echo "plans=$count: $listed"
+  fi
 }
 
 # One-line description of a worktree's uncommitted state, so the user can tell

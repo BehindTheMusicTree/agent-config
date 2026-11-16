@@ -189,6 +189,14 @@ class CleanReposTests(unittest.TestCase):
         output = self.run_script('apply')
         self.assertIn(f'removed-worktree={path}', output)
 
+    def test_nested_plan_protects_worktree(self):
+        path = self.add_worktree('feature/nested-plans', merged=True)
+        plans = path / 'nested' / '.agent-plans'
+        plans.mkdir(parents=True)
+        (plans / 'topic.md').write_text('plan\n')
+        self.assertIn('reason=agent-plans-present', self.run_script('apply'))
+        self.assertTrue((plans / 'topic.md').exists())
+
     def test_plan_directory_symlink_is_protected(self):
         path = self.add_worktree('feature/symlink', merged=True)
         (path / '.agent-plans').symlink_to(path / 'missing', target_is_directory=True)

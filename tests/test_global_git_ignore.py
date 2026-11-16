@@ -63,11 +63,15 @@ class GlobalGitIgnoreTests(unittest.TestCase):
         self.git('config', '--global', 'core.excludesFile', '~/custom ignores')
         config = (self.home / 'gitconfig').read_bytes()
         installer.apply(installer.prepare_git_ignore())
-        self.assertEqual(custom.read_text(), 'personal-rule\n.agent-tmp/\n!.agent-tmp/\n.agent-plans/\n')
+        self.assertEqual(custom.read_text(), 'personal-rule\n.agent-tmp/\n!.agent-tmp/\n.agent-tmp/\n.agent-plans/\n')
         self.assertEqual(custom.stat().st_mode & 0o777, 0o640)
         self.assertEqual((self.home / 'gitconfig').read_bytes(), config)
         self.assertEqual(installer.prepare_git_ignore(), [])
         self.assertFalse(self.default.exists())
+        repo = self.base / 'repo'
+        self.git('init', '-q', str(repo))
+        for path in ('.agent-tmp/trace.json', '.agent-plans/topic.md'):
+            self.assertEqual(self.git('check-ignore', path, cwd=repo).returncode, 0)
 
     def test_home_default_when_xdg_is_unset(self):
         with patch.dict(os.environ, {'XDG_CONFIG_HOME': ''}):
@@ -95,7 +99,7 @@ class GlobalGitIgnoreTests(unittest.TestCase):
         self.default.parent.mkdir(parents=True)
         self.default.write_text('.agent-plans/\n# personal rule\n*.bak\n')
         installer.apply(installer.prepare_git_ignore())
-        self.assertEqual(self.default.read_text(), '.agent-plans/\n# personal rule\n*.bak\n.agent-tmp/\n')
+        self.assertEqual(self.default.read_text(), '.agent-plans/\n# personal rule\n*.bak\n.agent-tmp/\n.agent-plans/\n')
         self.assertEqual(installer.prepare_git_ignore(), [])
 
     def test_rejects_symlinks_and_directories(self):
