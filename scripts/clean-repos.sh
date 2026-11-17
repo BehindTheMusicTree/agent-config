@@ -253,8 +253,8 @@ worktree_dirty_summary() {
 # counterpart, partial:K when K local commits are not on it.
 branch_push_state() {
   local br="$1" remote count
-  remote="$(git rev-parse -q --verify "$br@{upstream}" 2>/dev/null)" \
-    || remote="$(git rev-parse -q --verify "refs/remotes/origin/$br" 2>/dev/null)" \
+  # The branch's own remote counterpart, not its upstream: a branch cut from origin/main tracks that instead.
+  remote="$(git rev-parse -q --verify "refs/remotes/origin/$br" 2>/dev/null)" \
     || { echo no; return; }
   count="$(git rev-list --count "$remote..refs/heads/$br" 2>/dev/null)" || { echo unknown; return; }
   if [[ "$count" == 0 ]]; then echo yes; else echo "partial:$count"; fi

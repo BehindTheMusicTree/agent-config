@@ -322,7 +322,7 @@ class CleanReposTests(unittest.TestCase):
     def test_unmerged_worktree_reports_push_and_pr_state(self):
         path = self.add_worktree('feature/p', merged=False)
         git(self.repo, 'push', '-q', 'origin', 'feature/p')
-        git(self.repo, 'branch', '-q', '--set-upstream-to=origin/feature/p', 'feature/p')
+        git(self.repo, 'branch', '-q', '--set-upstream-to=origin/main', 'feature/p')
         scan = self.run_script('scan', GH_OPEN_PRS='feature/p\t12')
         self.assertIn('pushed=yes pr=#12', scan)
         (path / 'more.txt').write_text('more\n')
