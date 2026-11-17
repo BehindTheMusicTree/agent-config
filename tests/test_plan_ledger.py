@@ -85,6 +85,20 @@ class PlanLedgerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plan_ledger.inventory(self.root)
 
+    def test_symlinked_plan_directories_fail(self):
+        target = self.root / 'outside'
+        target.mkdir()
+        (target / 'hidden.md').write_text('plan\n')
+        (self.plans / 'sub').symlink_to(target, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            plan_ledger.inventory(self.root)
+        (self.plans / 'sub').unlink()
+        nested = self.root / 'pkg'
+        nested.mkdir()
+        (nested / '.agent-plans').symlink_to(target, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            plan_ledger.inventory(self.root)
+
 
 if __name__ == '__main__':
     unittest.main()

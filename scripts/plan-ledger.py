@@ -25,10 +25,16 @@ def inventory(root):
     plans = {}
     for directory, subdirectories, files in os.walk(root):
         current = Path(directory)
+        in_plans = '.agent-plans' in current.relative_to(root).parts
+        for name in subdirectories:
+            # os.walk does not follow directory links, so they would hide plans from the ledger.
+            if (in_plans or name == '.agent-plans') and (current / name).is_symlink():
+                relative = (current / name).relative_to(root).as_posix()
+                raise ValueError(f'cannot inventory plan entry {relative}: symlinked directory')
         # Nested repositories and linked worktrees (a .git file) own their plans.
         subdirectories[:] = sorted(name for name in subdirectories
                                    if name != '.git' and not (current / name / '.git').exists())
-        if '.agent-plans' not in current.relative_to(root).parts:
+        if not in_plans:
             continue
         for name in sorted(files):
             if name == '.gitignore' and current.name == '.agent-plans':
