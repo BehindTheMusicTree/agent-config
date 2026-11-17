@@ -85,13 +85,94 @@ class CleanReposTests(unittest.TestCase):
             git(self.repo, 'push', '-q', 'origin', branch)
         return path
 
+    def add_empty_worktree(self, branch, days_old):
+        path = self.repo / '.claude' / 'worktrees' / branch.replace('/', '-')
+        stamp = f'{int(time.time()) - days_old * 86400} +0000'
+        subprocess.run(
+            ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+             'worktree', 'add', '-q', '-b', branch, str(path), 'main'],
+            cwd=self.repo, check=True, capture_output=True, env={**os.environ, 'GIT_COMMITTER_DATE': stamp})
+        return path
+
+    def branch_exists(self, branch):
+        return bool(git(self.repo, 'branch', '--list', branch).strip())
+
+    def test_recent_empty_worktree_is_kept(self):
+        path = self.add_empty_worktree('feature/fresh', days_old=1)
+        self.assertIn('worktrees-new-empty', self.run_script('scan'))
+        output = self.run_script('apply')
+        self.assertNotIn('feature/fresh', output)
+        self.assertTrue(path.exists())
+        self.assertTrue(self.branch_exists('feature/fresh'))
+
+    def test_stale_idle_empty_worktree_is_removed_with_its_branch(self):
+        path = self.add_empty_worktree('feature/stale', days_old=30)
+        scan = self.run_script('scan')
+        self.assertIn('worktrees-stale-empty (never committed to, branch older than 7d', scan)
+        self.assertIn(f'{path}:feature/stale', scan)
+        self.assertNotIn('worktrees-new-empty', scan)
+        output = self.run_script('apply')
+        self.assertIn(f'removed-worktree={path} reason=stale-empty', output)
+        self.assertIn('deleted-local=feature/stale reason=stale-empty', output)
+        self.assertFalse(path.exists())
+        self.assertFalse(self.branch_exists('feature/stale'))
+
+    def test_stale_empty_worktree_in_use_is_kept_and_not_killed(self):
+        path = self.add_empty_worktree('feature/busy', days_old=30)
+        proc = self.start_process(path)
+        scan = self.run_script('scan')
+        self.assertIn('worktrees-new-empty', scan)
+        self.assertNotIn('worktrees-stale-empty', scan)
+        self.run_script('apply')
+        self.assertIsNone(proc.poll())
+        self.assertTrue(path.exists())
+        self.assertTrue(self.branch_exists('feature/busy'))
+
+    def test_dirty_stale_empty_worktree_is_kept(self):
+        path = self.add_empty_worktree('feature/scratch', days_old=30)
+        (path / 'notes.txt').write_text('draft\n')
+        self.assertNotIn('worktrees-stale-empty', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertTrue((path / 'notes.txt').exists())
+
+    def test_stale_empty_days_option_sets_the_threshold(self):
+        self.add_empty_worktree('feature/week', days_old=3)
+        self.assertIn('worktrees-new-empty', self.run_script('scan'))
+        self.assertIn('worktrees-stale-empty', self.run_script('scan', '--stale-empty-days', '2'))
+
+    def test_stale_empty_worktree_with_only_ignored_files_is_removed(self):
+        path = self.add_empty_worktree('feature/ignored', days_old=30)
+        (self.repo / '.git' / 'info' / 'exclude').write_text('*.env\n')
+        (path / 'local.env').write_text('X=1\n')
+        self.assertIn('worktrees-stale-empty', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertFalse(path.exists())
+
+    def test_stale_empty_worktree_is_kept_when_lsof_fails(self):
+        path = self.add_empty_worktree('feature/nolsof', days_old=30)
+        lsof = self.bin / 'lsof'
+        lsof.write_text('#!/usr/bin/env bash\necho "lsof: WARNING: cannot stat" >&2\nexit 1\n')
+        lsof.chmod(0o755)
+        scan = self.run_script('scan')
+        self.assertNotIn('worktrees-stale-empty', scan)
+        self.run_script('apply')
+        self.assertTrue(path.exists())
+
+    def test_stale_empty_worktree_dirtied_after_scan_is_kept_at_apply(self):
+        path = self.add_empty_worktree('feature/changed', days_old=30)
+        self.assertIn('worktrees-stale-empty', self.run_script('scan'))
+        (path / 'late.txt').write_text('x\n')
+        output = self.run_script('apply')
+        self.assertTrue(path.exists())
+        self.assertNotIn('removed-worktree=', output)
+
     def remote_has(self, branch):
         return bool(git(self.repo, 'ls-remote', '--heads', 'origin', branch).strip())
 
-    def run_script(self, mode, **env):
+    def run_script(self, mode, *args, **env):
         full_env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', **env}
         result = subprocess.run(
-            [shutil.which('bash'), str(SCRIPT), mode, str(self.root)],
+            [shutil.which('bash'), str(SCRIPT), mode, str(self.root), *args],
             env=full_env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout

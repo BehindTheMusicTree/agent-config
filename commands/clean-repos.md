@@ -4,7 +4,7 @@ description: Scan every repo under ~/git/ for branches already merged into trunk
 
 Delete local/remote branches already merged into trunk, and worktrees on those branches, across every repo under `~/git/`. All discovery and deletion goes through `scripts/clean-repos.sh`, one call per phase. Always confirm before deleting.
 
-Optional scope: **$ARGUMENTS** — e.g. "only <repo>", "exclude <repo>", "exclude branch <name>", "local only", "remote only". Map these to script flags: `--only-repo <name>`, `--exclude-repo <name>`, `--exclude <branch>` (all repeatable), `--local-only`, `--remote-only`. Pass them to both `scan` and `apply`; don't filter client-side.
+Optional scope: **$ARGUMENTS** — e.g. "only <repo>", "exclude <repo>", "exclude branch <name>", "local only", "remote only". Map these to script flags: `--only-repo <name>`, `--exclude-repo <name>`, `--exclude <branch>` (all repeatable), `--local-only`, `--remote-only`, `--stale-empty-days <n>` ("stale after N days"). Pass them to both `scan` and `apply`; don't filter client-side.
 
 **Every script call:** pass `timeout: 300000` and redirect to a file, then `Read` the file. Scans across many repos exceed the default timeout, and the Bash tool's captured output has been seen to come back empty — even without backgrounding.
 
@@ -27,7 +27,8 @@ Prints one block per repo with candidates (clean repos are silent), then a `summ
 - `local-squash-merged-verified:` — merged per `gh`, and the branch's content is confirmed on trunk. `apply` deletes these with `git branch -D`.
 - `local-squash-merged-unverified:` — merged per `gh`, but the branch's own patch differs from the merge commit. `apply` always skips these; the user can `git branch -D` them after checking the PR landed.
 - `dirty-worktree:` — branch looks merged but the worktree has uncommitted edits, summarized as tracked/untracked counts (untracked files listed). Excluded from deletion; that diff is the only copy of the work. Never discard it without the user's explicit say-so.
-- `worktrees-new-empty:` — branch created but never committed to. Excluded from deletion.
+- `worktrees-new-empty:` — branch created but never committed to, recently or with the worktree dirty or in use. Excluded from deletion.
+- `worktrees-stale-empty:` — branch never committed to and created more than 7 days ago (`--stale-empty-days`), worktree clean, no process mentions its path and `lsof` shows nothing open in it. `apply` re-checks all of that, then removes the worktree and its branch; it never kills processes for these. Ignored files in the worktree (`.env`, `node_modules`, `.agent-tmp`) are lost on removal, as for merged worktrees.
 - `running-processes:` — processes started from a worktree that `apply` will kill before removing it.
 - `open-prs-unknown` — `gh` could not list open PRs, so remote deletion is skipped for that repo (deleting a PR's branch closes it).
 
@@ -41,7 +42,7 @@ Show the candidates grouped by repo and wait for explicit confirmation. Remote d
 "${CLAUDE_PLUGIN_ROOT}/scripts/clean-repos.sh" apply "$HOME/git" [same flags] > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?" >> "$cleanup_log_dir/apply.txt"
 ```
 
-`apply` re-derives candidates fresh (new fetch, new merge check) and removes worktrees before their branch. It uses `git branch -D` only after confirming the branch is an ancestor of `origin/<trunk>` or that its content is already on trunk. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`, `delete-failed`, `push-delete-failed` or `open-prs-unknown` — relay them, don't override.
+`apply` re-derives candidates fresh (new fetch, new merge check) and removes worktrees before their branch. It uses `git branch -D` only after confirming the branch is an ancestor of `origin/<trunk>` or that its content is already on trunk. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`, `delete-failed`, `push-delete-failed`, `stale-empty-changed` or `open-prs-unknown` — relay them, don't override.
 
 ## Output format
 

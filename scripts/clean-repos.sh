@@ -16,6 +16,9 @@
 #   --exclude-repo <name>    skip this repo (repeatable)
 #   --local-only              skip remote branch deletion
 #   --remote-only              skip local branch deletion
+#   --stale-empty-days <n>    never-committed worktrees whose branch is older
+#                             than n days (default 7) and that are clean and
+#                             idle are removed with their branch on apply
 #
 # git-root defaults to ~/git.
 set -euo pipefail
@@ -34,6 +37,7 @@ remote_only=false
 excludes=()
 only_repos=()
 exclude_repos=()
+stale_empty_days=7
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -42,9 +46,12 @@ while [[ $# -gt 0 ]]; do
     --exclude-repo) exclude_repos+=("$2"); shift 2 ;;
     --local-only) local_only=true; shift ;;
     --remote-only) remote_only=true; shift ;;
+    --stale-empty-days) stale_empty_days="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+[[ "$stale_empty_days" =~ ^[0-9]+$ ]] || { echo "--stale-empty-days needs a non-negative integer: $stale_empty_days" >&2; exit 1; }
 
 contains() {
   local needle="$1"; shift
@@ -116,8 +123,39 @@ branch_adds_nothing_to_trunk() {
 # some point, so its removal is "real" work being cleaned up, not a no-op.
 worktree_branch_is_new_empty() {
   local br="$1" reflog
-  reflog="$(git reflog show "$br" 2>/dev/null)"
+  reflog="$(git reflog show "refs/heads/$br" 2>/dev/null)"
   [[ "$(wc -l <<<"$reflog" | tr -d ' ')" == "1" ]] && grep -q 'branch: Created from' <<<"$reflog"
+}
+
+# Unix time of the branch's creation, read from its single reflog entry.
+branch_created_at() {
+  local selector
+  selector="$(git reflog show -n1 --date=unix --format=%gd "refs/heads/$1" 2>/dev/null)" || return 1
+  selector="${selector##*@\{}"
+  selector="${selector%\}}"
+  [[ "$selector" =~ ^[0-9]+$ ]] || return 1
+  echo "$selector"
+}
+
+# A never-committed worktree left alone for days is an abandoned setup, not a
+# session about to start. Only call it stale when nothing uses it: no process
+# mentions its path and none holds a file or cwd in it. Fail closed when lsof
+# is unavailable or reports errors, since an in-use worktree would otherwise look idle.
+worktree_is_stale_empty() {
+  local br="$1" path="$2" created
+  created="$(branch_created_at "$br")" || return 1
+  (( $(date +%s) - created > stale_empty_days * 86400 )) || return 1
+  [[ -z "$(worktree_pids "$path")" ]] || return 1
+  command -v lsof >/dev/null 2>&1 || return 1
+  local out err
+  err="$(mktemp)" || return 1
+  out="$(lsof -t +D "$path" 2>"$err")"
+  # lsof exits 1 with no output when nothing is open; any stderr (unreadable
+  # path, permission problem) means the answer is unknown, so fail closed.
+  # An unprivileged lsof also cannot see other users' processes.
+  if [[ -s "$err" ]]; then rm -f "$err"; return 1; fi
+  rm -f "$err"
+  [[ -z "$out" ]]
 }
 
 # PIDs whose command line mentions exactly this worktree path. `pgrep -f` treats
@@ -409,6 +447,7 @@ for repo in "$git_root"/*/; do
   dirty_details=()
   dirty_reasons=()
   new_empty_worktrees=()
+  stale_empty_worktrees=()
   protected_branches=()
   for i in "${!worktree_branches[@]}"; do
     br="${worktree_branches[$i]}"
@@ -425,7 +464,11 @@ for repo in "$git_root"/*/; do
       fi
       protected_branches+=("$br")
     elif worktree_branch_is_new_empty "$br"; then
-      new_empty_worktrees+=("$path:$br")
+      if worktree_is_stale_empty "$br" "$path"; then
+        stale_empty_worktrees+=("$path:$br")
+      else
+        new_empty_worktrees+=("$path:$br")
+      fi
       protected_branches+=("$br")
     fi
   done
@@ -452,7 +495,8 @@ for repo in "$git_root"/*/; do
   if [[ ${#kept_local[@]} -eq 0 && ${#kept_local_squash_verified[@]} -eq 0 \
         && ${#kept_local_squash_unverified[@]} -eq 0 && ${#kept_remote[@]} -eq 0 \
         && ${#worktree_removals[@]} -eq 0 && ${#dirty_worktrees[@]} -eq 0 \
-        && ${#new_empty_worktrees[@]} -eq 0 ]] && ! $remote_skipped_unknown; then
+        && ${#new_empty_worktrees[@]} -eq 0 && ${#stale_empty_worktrees[@]} -eq 0 ]] \
+        && ! $remote_skipped_unknown; then
     clean=$((clean + 1))
     continue
   fi
@@ -474,7 +518,34 @@ for repo in "$git_root"/*/; do
     done
     $remote_skipped_unknown && echo "  open-prs-unknown (gh pr list failed, remote deletion skipped for this repo)"
     [[ ${#new_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-new-empty (branch created but never committed to, branch kept, not touched): ${new_empty_worktrees[*]}"
+    [[ ${#stale_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-stale-empty (never committed to, branch older than ${stale_empty_days}d, clean and idle: worktree and branch removed on apply): ${stale_empty_worktrees[*]}"
   else
+    for wt in "${stale_empty_worktrees[@]}"; do
+      path="${wt%%:*}"
+      br="${wt#*:}"
+      # Re-check right before acting: the worktree may have been picked up
+      # since the scan. Never kill anything here; an in-use one is skipped.
+      if worktree_has_plans "$path" || [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]] \
+         || ! worktree_branch_is_new_empty "$br" || ! worktree_is_stale_empty "$br" "$path"; then
+        echo "repo=$name skip-worktree=$path branch=$br reason=stale-empty-changed"
+        skipped=$((skipped + 1))
+        continue
+      fi
+      if ! git worktree remove "$path" 2>/dev/null; then
+        echo "repo=$name skip-worktree=$path reason=remove-failed"
+        skipped=$((skipped + 1))
+        continue
+      fi
+      echo "repo=$name removed-worktree=$path reason=stale-empty"
+      removed_worktrees=$((removed_worktrees + 1))
+      if git merge-base --is-ancestor "$br" "origin/$trunk" 2>/dev/null && git branch -D "$br" >/dev/null 2>&1; then
+        echo "repo=$name deleted-local=$br reason=stale-empty"
+        deleted_local=$((deleted_local + 1))
+      else
+        echo "repo=$name skip-local=$br reason=delete-failed"
+        skipped=$((skipped + 1))
+      fi
+    done
     for wt in "${worktree_removals[@]}"; do
       path="${wt%%:*}"
       if worktree_has_plans "$path"; then
