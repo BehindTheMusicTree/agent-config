@@ -510,6 +510,42 @@ class CleanReposTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('--handoff-days needs a non-negative integer', result.stderr)
 
+    def test_handoff_days_with_a_leading_zero_is_decimal(self):
+        old = self.handoff('repo-main', days_old=9)
+        self.assertIn(f'{old} [older-than-8d]', self.run_script('scan', '--handoff-days', '08'))
+
+    def test_handoff_with_a_foreign_repo_prefix_of_a_live_branch_is_kept(self):
+        self.add_worktree('feature/wip', merged=False)
+        recap = self.handoff('old-name-feature-wip')
+        orphan = self.handoff('old-name-feature-gone')
+        scan = self.run_script('scan')
+        self.assertNotIn(str(recap), scan)
+        self.assertIn(f'{orphan} [branch-gone]', scan)
+        self.run_script('apply')
+        self.assertTrue(recap.exists())
+        self.assertFalse(orphan.exists())
+
+    def test_handoff_of_a_live_non_ascii_branch_is_kept(self):
+        self.add_worktree('feature/café', merged=False)
+        # The handoff workflow replaces the character, not its bytes.
+        recap = self.handoff('repo-feature-caf-')
+        self.assertNotIn('stale-handoff', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertTrue(recap.exists())
+
+    def test_handoff_of_a_live_branch_sharing_a_deleted_branch_key_is_kept(self):
+        self.add_worktree('feature/x', merged=True)
+        live = self.repo / '.claude' / 'worktrees' / 'live-x'
+        git(self.repo, 'worktree', 'add', '-q', '-b', 'feature-x', str(live), 'main')
+        (live / 'live.txt').write_text('live\n')
+        git(live, 'add', '.')
+        git(live, 'commit', '-q', '-m', 'live work')
+        recap = self.handoff('repo-feature-x')
+        self.assertNotIn('stale-handoff', self.run_script('scan', GH_OPEN_BRANCHES=''))
+        output = self.run_script('apply', GH_OPEN_BRANCHES='')
+        self.assertIn('deleted-local=feature/x', output)
+        self.assertTrue(recap.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

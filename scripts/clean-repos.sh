@@ -92,6 +92,8 @@ done
 
 [[ "$stale_empty_days" =~ ^[0-9]+$ ]] || { echo "--stale-empty-days needs a non-negative integer: $stale_empty_days" >&2; exit 1; }
 [[ "$handoff_days" =~ ^[0-9]+$ ]] || { echo "--handoff-days needs a non-negative integer: $handoff_days" >&2; exit 1; }
+# A leading zero would make Bash arithmetic read the value as octal.
+handoff_days=$((10#$handoff_days))
 
 contains() {
   local needle="$1"; shift
@@ -368,7 +370,9 @@ unmerged_worktree_summary() {
   echo "$summary"
 }
 
-handoff_key() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-'; }
+# The handoff workflow replaces characters; tr replaces bytes, so a multibyte
+# character yields several dashes. Squeezing dashes makes both spellings agree.
+handoff_key() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | tr -s '-'; }
 
 # The handoff workflow writes one recap per branch to the common git dir as
 # agent-handoff-<repo>-<branch>.md (earlier versions: agent-handoff-<branch>.md),
@@ -378,21 +382,30 @@ handoff_key() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-'; }
 # Arguments: branches apply is about to delete, treated as gone (scan's
 # prediction). Prints "<path>\t<reason>" per recap to remove.
 stale_handoffs() {
-  local common repo_key file stem key b age_key=false
-  local -A live=() protected=() trunks=() deleting=()
+  local common repo_key refs file stem key rest c b age_key=false is_live is_deleting
+  local -a cands=()
+  local -A live=() protected=() trunks=() deleting=() deleting_names=()
   common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  # Without the branch list every recap would look orphaned.
+  refs="$(git for-each-ref --format='%(refname:lstrip=2)' refs/heads)" \
+    || { echo "repo=$name warning: cannot list branches, handoff recaps kept" >&2; return 0; }
   repo_key="$(handoff_key "$name")"
-  for b in "$@"; do deleting["$(handoff_key "$b")"]=1; done
-  while IFS= read -r b; do
+  for b in "$@"; do
     [[ -n "$b" ]] || continue
-    [[ -n "${deleting[$(handoff_key "$b")]:-}" ]] || live["$(handoff_key "$b")"]=1
-  done < <(git for-each-ref --format='%(refname:lstrip=2)' refs/heads)
+    deleting_names["$b"]=1
+    deleting["$(handoff_key "$b")"]=1
+  done
+  # Keys can collide (feature/x and feature-x): only the exact branches being
+  # deleted leave the live set, so a surviving namesake keeps its recap.
+  while IFS= read -r b; do
+    [[ -n "$b" && -z "${deleting_names[$b]:-}" ]] && live["$(handoff_key "$b")"]=1
+  done <<< "$refs"
   for b in ${repo_excludes[@]+"${repo_excludes[@]}"}; do protected["$(handoff_key "$b")"]=1; done
   for b in "$trunk" main master develop; do trunks["$(handoff_key "$b")"]=1; done
   while IFS= read -r -d '' file; do
     path_excluded "$file" && continue
     stem="${file##*/agent-handoff-}"
-    stem="${stem%.md}"
+    stem="$(handoff_key "${stem%.md}")"
     [[ -n "$stem" ]] || continue
     key="${stem#"$repo_key"-}"
     [[ -n "$key" ]] || key="$stem"
@@ -406,8 +419,23 @@ stale_handoffs() {
         && printf '%s\t%s\n' "$file" "older-than-${handoff_days}d"
       continue
     fi
-    [[ -n "${live[$key]:-}" || -n "${live[$stem]:-}" ]] && continue
-    if [[ -n "${deleting[$key]:-}" || -n "${deleting[$stem]:-}" ]]; then
+    # The repo prefix is the directory name when the recap was written; a
+    # renamed or symlinked repo leaves another prefix. Every dash-separated
+    # suffix of the stem is a possible branch key, which also covers $key.
+    cands=("$stem")
+    rest="$stem"
+    while [[ "$rest" == *-* ]]; do
+      rest="${rest#*-}"
+      cands+=("$rest" "-$rest")
+    done
+    is_live=false; is_deleting=false
+    for c in "${cands[@]}"; do
+      [[ -n "$c" ]] || continue
+      [[ -n "${live[$c]:-}" ]] && is_live=true
+      [[ -n "${deleting[$c]:-}" ]] && is_deleting=true
+    done
+    $is_live && continue
+    if $is_deleting; then
       printf '%s\t%s\n' "$file" branch-deleted-on-apply
     else
       printf '%s\t%s\n' "$file" branch-gone
