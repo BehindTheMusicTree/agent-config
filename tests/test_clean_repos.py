@@ -140,6 +140,32 @@ class CleanReposTests(unittest.TestCase):
         self.assertIn('worktrees-new-empty', self.run_script('scan'))
         self.assertIn('worktrees-stale-empty', self.run_script('scan', '--stale-empty-days', '2'))
 
+    def test_stale_empty_worktree_with_only_ignored_files_is_removed(self):
+        path = self.add_empty_worktree('feature/ignored', days_old=30)
+        (self.repo / '.git' / 'info' / 'exclude').write_text('*.env\n')
+        (path / 'local.env').write_text('X=1\n')
+        self.assertIn('worktrees-stale-empty', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertFalse(path.exists())
+
+    def test_stale_empty_worktree_is_kept_when_lsof_fails(self):
+        path = self.add_empty_worktree('feature/nolsof', days_old=30)
+        lsof = self.bin / 'lsof'
+        lsof.write_text('#!/usr/bin/env bash\necho "lsof: WARNING: cannot stat" >&2\nexit 1\n')
+        lsof.chmod(0o755)
+        scan = self.run_script('scan')
+        self.assertNotIn('worktrees-stale-empty', scan)
+        self.run_script('apply')
+        self.assertTrue(path.exists())
+
+    def test_stale_empty_worktree_dirtied_after_scan_is_kept_at_apply(self):
+        path = self.add_empty_worktree('feature/changed', days_old=30)
+        self.assertIn('worktrees-stale-empty', self.run_script('scan'))
+        (path / 'late.txt').write_text('x\n')
+        output = self.run_script('apply')
+        self.assertTrue(path.exists())
+        self.assertNotIn('removed-worktree=', output)
+
     def remote_has(self, branch):
         return bool(git(self.repo, 'ls-remote', '--heads', 'origin', branch).strip())
 

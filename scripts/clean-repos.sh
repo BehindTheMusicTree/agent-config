@@ -123,14 +123,14 @@ branch_adds_nothing_to_trunk() {
 # some point, so its removal is "real" work being cleaned up, not a no-op.
 worktree_branch_is_new_empty() {
   local br="$1" reflog
-  reflog="$(git reflog show "$br" 2>/dev/null)"
+  reflog="$(git reflog show "refs/heads/$br" 2>/dev/null)"
   [[ "$(wc -l <<<"$reflog" | tr -d ' ')" == "1" ]] && grep -q 'branch: Created from' <<<"$reflog"
 }
 
 # Unix time of the branch's creation, read from its single reflog entry.
 branch_created_at() {
   local selector
-  selector="$(git reflog show -n1 --date=unix --format=%gd "$1" 2>/dev/null)" || return 1
+  selector="$(git reflog show -n1 --date=unix --format=%gd "refs/heads/$1" 2>/dev/null)" || return 1
   selector="${selector##*@\{}"
   selector="${selector%\}}"
   [[ "$selector" =~ ^[0-9]+$ ]] || return 1
@@ -140,14 +140,22 @@ branch_created_at() {
 # A never-committed worktree left alone for days is an abandoned setup, not a
 # session about to start. Only call it stale when nothing uses it: no process
 # mentions its path and none holds a file or cwd in it. Fail closed when lsof
-# is unavailable, since an in-use worktree would otherwise look idle.
+# is unavailable or reports errors, since an in-use worktree would otherwise look idle.
 worktree_is_stale_empty() {
   local br="$1" path="$2" created
   created="$(branch_created_at "$br")" || return 1
   (( $(date +%s) - created > stale_empty_days * 86400 )) || return 1
   [[ -z "$(worktree_pids "$path")" ]] || return 1
   command -v lsof >/dev/null 2>&1 || return 1
-  [[ -z "$(lsof -t +D "$path" 2>/dev/null)" ]]
+  local out err
+  err="$(mktemp)" || return 1
+  out="$(lsof -t +D "$path" 2>"$err")"
+  # lsof exits 1 with no output when nothing is open; any stderr (unreadable
+  # path, permission problem) means the answer is unknown, so fail closed.
+  # An unprivileged lsof also cannot see other users' processes.
+  if [[ -s "$err" ]]; then rm -f "$err"; return 1; fi
+  rm -f "$err"
+  [[ -z "$out" ]]
 }
 
 # PIDs whose command line mentions exactly this worktree path. `pgrep -f` treats
