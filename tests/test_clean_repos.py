@@ -429,6 +429,87 @@ class CleanReposTests(unittest.TestCase):
         self.assertIn('clean=0', scan)
         self.assertIn('unmerged-worktrees=1', scan)
 
+    def handoff(self, name, days_old=0):
+        path = self.repo / '.git' / f'agent-handoff-{name}.md'
+        path.write_text('recap\n')
+        stamp = time.time() - days_old * 86400
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def test_merged_branch_handoff_is_removed_with_its_branch(self):
+        self.add_worktree('feature/a', merged=True)
+        recap = self.handoff('repo-feature-a')
+        scan = self.run_script('scan', GH_OPEN_BRANCHES='')
+        self.assertIn(f'stale-handoff (recap of a gone branch', scan)
+        self.assertIn(f'{recap} [branch-deleted-on-apply]', scan)
+        output = self.run_script('apply', GH_OPEN_BRANCHES='')
+        self.assertIn('deleted-local=feature/a', output)
+        self.assertIn(f'deleted-handoff={recap} reason=branch-gone', output)
+        self.assertIn('deleted-handoffs=1', output)
+        self.assertFalse(recap.exists())
+
+    def test_handoff_of_a_live_branch_is_kept(self):
+        self.add_worktree('feature/wip', merged=False)
+        recap = self.handoff('repo-feature-wip', days_old=30)
+        self.assertNotIn('stale-handoff', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertTrue(recap.exists())
+
+    def test_handoff_of_a_protected_merged_branch_is_kept(self):
+        path = self.add_worktree('feature/dirty', merged=True)
+        (path / 'scratch.txt').write_text('s\n')
+        recap = self.handoff('repo-feature-dirty')
+        self.assertNotIn('stale-handoff', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertTrue(recap.exists())
+
+    def test_orphan_handoffs_are_removed_in_both_name_formats(self):
+        current = self.handoff('repo-feature-gone')
+        legacy = self.handoff('fix-gone')
+        scan = self.run_script('scan')
+        self.assertIn(f'{current} [branch-gone]', scan)
+        self.assertIn(f'{legacy} [branch-gone]', scan)
+        self.run_script('apply')
+        self.assertFalse(current.exists())
+        self.assertFalse(legacy.exists())
+
+    def test_trunk_and_detached_handoffs_expire_by_age(self):
+        recent = self.handoff('repo-main', days_old=1)
+        old = self.handoff('repo-detached-abc1234', days_old=8)
+        legacy_old = self.handoff('main', days_old=8)
+        scan = self.run_script('scan')
+        self.assertNotIn(str(recent), scan)
+        self.assertIn(f'{old} [older-than-7d]', scan)
+        self.assertIn(f'{legacy_old} [older-than-7d]', scan)
+        self.assertNotIn('stale-handoff', self.run_script('scan', '--handoff-days', '30'))
+        self.run_script('apply')
+        self.assertTrue(recent.exists())
+        self.assertFalse(old.exists())
+        self.assertFalse(legacy_old.exists())
+
+    def test_excluded_handoff_path_and_branch_are_kept(self):
+        by_path = self.handoff('repo-feature-gone')
+        by_branch = self.handoff('repo-feature-other')
+        excluded = str(Path(self.tmp.name) / by_path.relative_to(Path(self.tmp.name).resolve()))
+        output = self.run_script('apply', '--exclude', excluded, '--exclude', 'feature/other')
+        self.assertIn('deleted-handoffs=0', output)
+        self.assertTrue(by_path.exists())
+        self.assertTrue(by_branch.exists())
+
+    def test_keep_handoffs_and_remote_only_never_remove_recaps(self):
+        recap = self.handoff('repo-feature-gone')
+        for flag in ('--keep-handoffs', '--remote-only'):
+            self.assertNotIn('stale-handoff', self.run_script('scan', flag))
+            self.run_script('apply', flag)
+            self.assertTrue(recap.exists())
+
+    def test_handoff_days_must_be_an_integer(self):
+        result = subprocess.run(
+            [shutil.which('bash'), str(SCRIPT), 'scan', str(self.root), '--handoff-days', 'x'],
+            text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--handoff-days needs a non-negative integer', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()

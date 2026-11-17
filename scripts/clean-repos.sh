@@ -23,6 +23,12 @@
 #   --stale-empty-days <n>    never-committed worktrees whose branch is older
 #                             than n days (default 1) and that are clean and
 #                             idle are removed with their branch on apply
+#   --handoff-days <n>        trunk and detached-HEAD handoff recaps older than
+#                             n days (default 7) are removed on apply; a
+#                             branch's recap goes when the branch is gone
+#   --keep-handoffs           never remove handoff recaps
+#
+# An absolute --exclude path that names a handoff recap protects that file.
 #
 # git-root defaults to ~/git.
 set -euo pipefail
@@ -43,6 +49,8 @@ exclude_paths=()
 only_repos=()
 exclude_repos=()
 stale_empty_days=1
+handoff_days=7
+keep_handoffs=false
 
 # Physical path when it exists (git and the user may spell symlinked parents
 # differently, e.g. /var vs /private/var), without trailing slashes.
@@ -76,11 +84,14 @@ while [[ $# -gt 0 ]]; do
     --local-only) local_only=true; shift ;;
     --remote-only) remote_only=true; shift ;;
     --stale-empty-days) stale_empty_days="$2"; shift 2 ;;
+    --handoff-days) handoff_days="$2"; shift 2 ;;
+    --keep-handoffs) keep_handoffs=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 [[ "$stale_empty_days" =~ ^[0-9]+$ ]] || { echo "--stale-empty-days needs a non-negative integer: $stale_empty_days" >&2; exit 1; }
+[[ "$handoff_days" =~ ^[0-9]+$ ]] || { echo "--handoff-days needs a non-negative integer: $handoff_days" >&2; exit 1; }
 
 contains() {
   local needle="$1"; shift
@@ -357,8 +368,55 @@ unmerged_worktree_summary() {
   echo "$summary"
 }
 
+handoff_key() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-'; }
+
+# The handoff workflow writes one recap per branch to the common git dir as
+# agent-handoff-<repo>-<branch>.md (earlier versions: agent-handoff-<branch>.md),
+# with both names reduced to [A-Za-z0-9._-]. A recap only serves resuming its
+# branch, so it is obsolete once the branch is gone. Trunk and detached-HEAD
+# recaps have no branch lifecycle to follow, so age bounds them instead.
+# Arguments: branches apply is about to delete, treated as gone (scan's
+# prediction). Prints "<path>\t<reason>" per recap to remove.
+stale_handoffs() {
+  local common repo_key file stem key b age_key=false
+  local -A live=() protected=() trunks=() deleting=()
+  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
+  repo_key="$(handoff_key "$name")"
+  for b in "$@"; do deleting["$(handoff_key "$b")"]=1; done
+  while IFS= read -r b; do
+    [[ -n "$b" ]] || continue
+    [[ -n "${deleting[$(handoff_key "$b")]:-}" ]] || live["$(handoff_key "$b")"]=1
+  done < <(git for-each-ref --format='%(refname:lstrip=2)' refs/heads)
+  for b in ${repo_excludes[@]+"${repo_excludes[@]}"}; do protected["$(handoff_key "$b")"]=1; done
+  for b in "$trunk" main master develop; do trunks["$(handoff_key "$b")"]=1; done
+  while IFS= read -r -d '' file; do
+    path_excluded "$file" && continue
+    stem="${file##*/agent-handoff-}"
+    stem="${stem%.md}"
+    [[ -n "$stem" ]] || continue
+    key="${stem#"$repo_key"-}"
+    [[ -n "$key" ]] || key="$stem"
+    # A legacy name has no repo prefix; when stripping one changed the stem, test both readings.
+    [[ -n "${protected[$key]:-}" || -n "${protected[$stem]:-}" ]] && continue
+    age_key=false
+    [[ -n "${trunks[$key]:-}" || -n "${trunks[$stem]:-}" ]] && age_key=true
+    [[ "$key" =~ ^detached-[0-9a-f]+$ || "$stem" =~ ^detached-[0-9a-f]+$ ]] && age_key=true
+    if $age_key; then
+      [[ -n "$(find "$file" -mmin +"$((handoff_days * 1440))" 2>/dev/null)" ]] \
+        && printf '%s\t%s\n' "$file" "older-than-${handoff_days}d"
+      continue
+    fi
+    [[ -n "${live[$key]:-}" || -n "${live[$stem]:-}" ]] && continue
+    if [[ -n "${deleting[$key]:-}" || -n "${deleting[$stem]:-}" ]]; then
+      printf '%s\t%s\n' "$file" branch-deleted-on-apply
+    else
+      printf '%s\t%s\n' "$file" branch-gone
+    fi
+  done < <(find "$common" -maxdepth 1 -type f -name 'agent-handoff-*.md' -print0 2>/dev/null | sort -z)
+}
+
 scanned=0; with_candidates=0; clean=0; errors=0; unmerged_total=0; kept_unmerged=0
-deleted_local=0; deleted_remote=0; removed_worktrees=0; skipped=0
+deleted_local=0; deleted_remote=0; removed_worktrees=0; skipped=0; deleted_handoffs=0
 
 for repo in "$git_root"/*/; do
   repo="${repo%/}"
@@ -654,11 +712,24 @@ for repo in "$git_root"/*/; do
     done
   fi
 
+  # Scan predicts the recaps of branches apply will delete; apply re-derives
+  # them after its deletions, so a branch that fails to delete keeps its recap.
+  handoff_removals=()
+  handoff_reasons=()
+  if ! $keep_handoffs && ! $remote_only; then
+    apply_deletes=("${kept_local[@]}" "${kept_local_squash_verified[@]}")
+    for wt in "${stale_empty_worktrees[@]}"; do apply_deletes+=("${wt#*:}"); done
+    while IFS=$'\t' read -r f r; do
+      handoff_removals+=("$f")
+      handoff_reasons+=("$r")
+    done < <(stale_handoffs ${apply_deletes[@]+"${apply_deletes[@]}"})
+  fi
+
   if [[ ${#kept_local[@]} -eq 0 && ${#kept_local_squash_verified[@]} -eq 0 \
         && ${#kept_local_squash_unverified[@]} -eq 0 && ${#kept_remote[@]} -eq 0 \
         && ${#worktree_removals[@]} -eq 0 && ${#dirty_worktrees[@]} -eq 0 \
         && ${#new_empty_worktrees[@]} -eq 0 && ${#stale_empty_worktrees[@]} -eq 0 \
-        && ${#unmerged_worktrees[@]} -eq 0 ]] \
+        && ${#unmerged_worktrees[@]} -eq 0 && ${#handoff_removals[@]} -eq 0 ]] \
         && ! $remote_skipped_unknown; then
     clean=$((clean + 1))
     continue
@@ -686,6 +757,9 @@ for repo in "$git_root"/*/; do
     $remote_skipped_unknown && echo "  open-prs-unknown (gh pr list failed, remote deletion skipped for this repo)"
     [[ ${#new_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-new-empty (branch created but never committed to, branch kept, not touched): ${new_empty_worktrees[*]}"
     [[ ${#stale_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-stale-empty (never committed to, branch older than ${stale_empty_days}d, clean and idle: worktree and branch removed on apply): ${stale_empty_worktrees[*]}"
+    for i in "${!handoff_removals[@]}"; do
+      echo "  stale-handoff (recap of a gone branch, or trunk/detached recap older than ${handoff_days}d: removed on apply): ${handoff_removals[$i]} [${handoff_reasons[$i]}]"
+    done
   else
     for wt in "${stale_empty_worktrees[@]}"; do
       path="${wt%%:*}"
@@ -811,11 +885,22 @@ for repo in "$git_root"/*/; do
         skipped=$((skipped + 1))
       fi
     done
+    if ! $keep_handoffs && ! $remote_only; then
+      while IFS=$'\t' read -r f r; do
+        if rm -f -- "$f" 2>/dev/null; then
+          echo "repo=$name deleted-handoff=$f reason=$r"
+          deleted_handoffs=$((deleted_handoffs + 1))
+        else
+          echo "repo=$name skip-handoff=$f reason=remove-failed"
+          skipped=$((skipped + 1))
+        fi
+      done < <(stale_handoffs)
+    fi
   fi
 done
 
 if [[ "$mode" == "scan" ]]; then
   echo "summary: scanned=$scanned with-candidates=$with_candidates clean=$clean errors=$errors unmerged-worktrees=$unmerged_total"
 else
-  echo "summary: deleted-local=$deleted_local deleted-remote=$deleted_remote removed-worktrees=$removed_worktrees skipped=$skipped kept-unmerged=$kept_unmerged"
+  echo "summary: deleted-local=$deleted_local deleted-remote=$deleted_remote removed-worktrees=$removed_worktrees skipped=$skipped kept-unmerged=$kept_unmerged deleted-handoffs=$deleted_handoffs"
 fi

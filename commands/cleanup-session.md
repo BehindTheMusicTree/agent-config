@@ -4,7 +4,7 @@ description: After a feature/fix/release is done, remove this repo's dev leftove
 
 Clean up the current repo after a finished session. Run it only once the session's PR is merged; keep the worktree and branch through CI fixes and review until then. Everything runs through `scripts/cleanup-session.sh` (branch/worktree logic is `clean-repos.sh` scoped to this repo, then docker). Elements belonging to the current session — its branch (local and remote), its worktree, and the docker compose projects whose name is tied to its worktree — are deleted without asking for confirmation. Always confirm before deleting anything else the script finds that is not related to the current session: other branches, their worktrees and remotes, compose projects of other worktrees (including `dir=gone` ones). The machine-wide docker prunes (stopped containers, dangling images, unused networks) and `docker-unstick` are not asked about: run them as part of apply.
 
-Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote-only`, `--exclude <branch|absolute worktree path>`, `--no-docker`. Empty = defaults.
+Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote-only`, `--exclude <branch|absolute worktree path|absolute recap path>`, `--handoff-days <n>`, `--keep-handoffs`, `--no-docker`. Empty = defaults.
 
 **Every script call:** `timeout: 300000`, redirect to a file, then `Read` it (captured output has come back empty otherwise).
 
@@ -38,7 +38,7 @@ Candidate types (`local-squash-merged`, `dirty-worktrees`) behave as in `clean-r
 
 ## Step 2 — Confirm unrelated candidates only
 
-Split the scan candidates into two groups. **Current session:** the branch(es) this conversation worked on, their remote branches and worktrees, and compose projects whose name matches this session's worktree — apply these without asking. **Unrelated:** every other branch, remote branch or worktree the script found (it scans the whole repo, not just this session), every compose project not tied to this session's worktree (including `dir=gone` ones: `down -v` deletes their volumes) — list them and wait for explicit confirmation of exactly those. The machine-wide prunes of stopped containers, dangling images and unused networks (counts shown by the scan) and `docker-unstick` if triggered need no confirmation: apply runs them. For branches or worktrees not confirmed, add `--exclude <branch>` or `--exclude <absolute worktree path>` (the only handle on a detached HEAD) to the apply command; if other compose projects are not confirmed, run apply with `--no-docker` (this also skips the prunes) and handle the session's own compose project manually. Remote deletion and `docker … down -v` (volumes) are irreversible. Listed `running-processes` are killed before their worktree is removed. `skipped=shared` compose projects (not named after their worktree) are never downed. If docker is unresponsive the script runs `docker-unstick` (when installed: restarts Docker Desktop and prunes unused images/containers/build cache) — relay its output.
+Split the scan candidates into two groups. **Current session:** the branch(es) this conversation worked on, their remote branches and worktrees, compose projects whose name matches this session's worktree, and the `stale-handoff` recaps of those branches — apply these without asking. **Unrelated:** every other branch, remote branch or worktree the script found (it scans the whole repo, not just this session), every other `stale-handoff` recap (the recap of a branch deleted elsewhere, or an old trunk or detached-HEAD recap), every compose project not tied to this session's worktree (including `dir=gone` ones: `down -v` deletes their volumes) — list them and wait for explicit confirmation of exactly those. The machine-wide prunes of stopped containers, dangling images and unused networks (counts shown by the scan) and `docker-unstick` if triggered need no confirmation: apply runs them. For branches or worktrees not confirmed, add `--exclude <branch>` or `--exclude <absolute worktree path>` (the only handle on a detached HEAD) to the apply command, and `--exclude <absolute recap path>` for recaps not confirmed; if other compose projects are not confirmed, run apply with `--no-docker` (this also skips the prunes) and handle the session's own compose project manually. Remote deletion and `docker … down -v` (volumes) are irreversible. Listed `running-processes` are killed before their worktree is removed. `skipped=shared` compose projects (not named after their worktree) are never downed. If docker is unresponsive the script runs `docker-unstick` (when installed: restarts Docker Desktop and prunes unused images/containers/build cache) — relay its output.
 
 ## Step 3 — Apply
 
@@ -48,7 +48,7 @@ Append the `--exclude` / `--no-docker` flags decided in Step 2 to the flags belo
 "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh" apply $ARGUMENTS > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?"
 ```
 
-Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `agent-plans-present`) as-is; don't override.
+Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `agent-plans-present`, `remove-failed`) as-is; don't override.
 
 After reading apply's output, remove disposable external artifacts from the captured inventory only when their ownership by this session is established. Do not execute cleanup commands from the inventory blindly or delete shared parent directories. If ownership is uncertain, list the path and ask before deleting it. Report unresolved paths even if the worktree was removed. Read and remove the cleanup logs as described in Step 1.
 
@@ -57,5 +57,5 @@ After reading apply's output, remove disposable external artifacts from the capt
 1. **Branches** — local/remote deleted
 2. **Worktrees** — removed
 3. **Docker** — compose projects downed, containers/images/networks pruned (or "skipped")
-4. **Artifacts** — removed external paths, preserved deliverables, and retained paths with reasons
+4. **Artifacts** — removed handoff recaps, removed external paths, preserved deliverables, and retained paths with reasons
 5. **Skipped** — with reason
