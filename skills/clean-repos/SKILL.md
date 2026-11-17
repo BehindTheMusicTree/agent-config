@@ -7,7 +7,7 @@ Resolve `SKILL_REPO_ROOT` from this SKILL.md’s actual location: follow any sym
 
 Delete local/remote branches already merged into trunk, and worktrees on those branches, across every repo under `~/git/`. All discovery and deletion goes through `scripts/clean-repos.sh`, one call per phase. Always confirm before deleting.
 
-Optional scope: **user-provided arguments** — e.g. "only <repo>", "exclude <repo>", "exclude branch <name>", "local only", "remote only". Map these to script flags: `--only-repo <name>`, `--exclude-repo <name>`, `--exclude <branch|absolute worktree path>` (all repeatable; a path also protects that worktree's branch and is the only way to exclude a detached HEAD), `--local-only`, `--remote-only`, `--stale-empty-days <n>` ("stale after N days"). Pass them to both `scan` and `apply`; don't filter client-side.
+Optional scope: **user-provided arguments** — e.g. "only <repo>", "exclude <repo>", "exclude branch <name>", "local only", "remote only". Map these to script flags: `--only-repo <name>`, `--exclude-repo <name>`, `--exclude <branch|absolute worktree path>` (all repeatable; a path also protects that worktree's branch and is the only way to exclude a detached HEAD; a handoff recap's absolute path protects that recap), `--local-only`, `--remote-only`, `--stale-empty-days <n>` ("stale after N days"), `--handoff-days <n>` ("keep trunk recaps N days"), `--keep-handoffs` ("keep handoff recaps"). Pass them to both `scan` and `apply`; don't filter client-side.
 
 **Every script call:** allow enough time and redirect to a file, then read the file. Scans across many repos exceed the default timeout, and the Bash tool's captured output has been seen to come back empty — even without backgrounding.
 
@@ -33,6 +33,7 @@ Prints one block per repo with candidates (clean repos are silent), then a `summ
 - `unmerged-worktree:` — a worktree whose branch (or detached HEAD) is not proven merged: unmerged commits, an open PR or a detached HEAD. Reported with `ahead=`, `pushed=`, `pr=`, dirty counts, `plans=`, `content-on-trunk=yes` when its changes are already on trunk and, in `scan` only, `likely-superseded-by=#N` when its commit subjects match a trunk commit. These hints are context for a manual decision, never a deletion signal: `apply` never removes these worktrees or branches (`keep-worktree=… reason=unmerged-worktree`, counted in `kept-unmerged=`, not in `skipped=`).
 - `worktrees-new-empty:` — branch created but never committed to, recently or with the worktree dirty or in use. Excluded from deletion.
 - `worktrees-stale-empty:` — branch never committed to and created more than 1 day ago (`--stale-empty-days`), worktree clean, no process mentions its path and `lsof` shows nothing open in it. `apply` re-checks all of that, then removes the worktree and its branch; it never kills processes for these. Ignored files in the worktree (`.env`, `node_modules`, `.agent-tmp`) are lost on removal, as for merged worktrees.
+- `stale-handoff:` — a handoff recap (`agent-handoff-*.md` in the repo's common git dir) that no longer serves resuming a branch: its branch is gone (`branch-gone`) or deleted by this `apply` (`branch-deleted-on-apply`), or it is a trunk or detached-HEAD recap older than 7 days (`--handoff-days`, `older-than-<n>d`). `apply` re-derives them after its branch deletions, so a branch that fails to delete keeps its recap. `--exclude <branch>` or the recap's absolute path protects it; `--keep-handoffs` and `--remote-only` leave all recaps alone.
 - `running-processes:` — processes started from a worktree that `apply` will kill before removing it.
 - `open-prs-unknown` — `gh` could not list open PRs, so remote deletion is skipped for that repo (deleting a PR's branch closes it).
 
@@ -51,6 +52,6 @@ Show the candidates grouped by repo and wait for explicit confirmation. Remote d
 ## Output format
 
 1. **Scanned** — repos scanned / with candidates / clean / errored (with brief reason)
-2. **Deleted** — per repo: local branches, remote branches, worktrees
+2. **Deleted** — per repo: local branches, remote branches, worktrees, handoff recaps
 3. **Skipped** — with reason
 4. **Kept (unmerged)** — per repo: unmerged worktrees with their `ahead/pushed/pr` state and any `likely-superseded-by` hint from the scan (`apply` does not compute it); the user decides each one

@@ -6,6 +6,7 @@
 
 - Plan lifecycle: `create-pr` reconciles `.agent-plans/` into the PR body and follow-up issues and records it in a ledger (`scripts/plan-ledger.py record|status`); `cleanup-session` treats reconciled plans as disposable and asks only about unreconciled or modified ones.
 - `new-worktree-setup.sh --plan <abs path>` moves the session's plan-mode file into the new worktree's `.agent-plans/`, verified with `cmp`.
+- `clean-repos` / `cleanup-session` remove `agent-handoff-*.md` recaps from the common git dir once their branch is gone or deleted by the same `apply` (`stale-handoff`, `deleted-handoffs=`); trunk and detached-HEAD recaps expire after `--handoff-days` (default 7). `--keep-handoffs` disables it; `--exclude` with a branch or the recap's absolute path protects one.
 
 ### Fixed
 
