@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-11-17
+
 ### Changed
 
 - Store plans in ignored `.agent-plans/` directories and protect them from worktree cleanup until the user decides their fate; manage both agent directory exclusions.
