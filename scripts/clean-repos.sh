@@ -419,10 +419,13 @@ stale_handoffs() {
     for c in "${cands[@]}"; do
       [[ -n "$c" ]] || continue
       [[ -n "${protected[$c]:-}" ]] && is_protected=true
-      if [[ -n "${trunks[$c]:-}" || "$c" =~ ^detached-[0-9a-f]+$ ]]; then
+      # Trunks never count as live; a live branch named detached-<hex> does.
+      if [[ -n "${trunks[$c]:-}" ]]; then
         is_aged=true
       elif [[ -n "${live[$c]:-}" ]]; then
         is_live=true
+      elif [[ "$c" =~ ^detached-[0-9a-f]+$ ]]; then
+        is_aged=true
       fi
       [[ -n "${deleting[$c]:-}" ]] && is_deleting=true
     done

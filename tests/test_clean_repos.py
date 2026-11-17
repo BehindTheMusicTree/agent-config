@@ -537,7 +537,16 @@ class CleanReposTests(unittest.TestCase):
 
     def test_handoff_of_a_live_branch_named_like_a_trunk_is_kept(self):
         self.add_worktree('feature/main', merged=False)
-        recap = self.handoff('feature-main', days_old=30)
+        legacy = self.handoff('feature-main', days_old=30)
+        prefixed = self.handoff('repo-feature-main', days_old=30)
+        self.assertNotIn('stale-handoff', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertTrue(legacy.exists())
+        self.assertTrue(prefixed.exists())
+
+    def test_handoff_of_a_live_branch_named_like_a_detached_head_is_kept(self):
+        self.add_worktree('detached-cafe', merged=False)
+        recap = self.handoff('repo-detached-cafe', days_old=30)
         self.assertNotIn('stale-handoff', self.run_script('scan'))
         self.run_script('apply')
         self.assertTrue(recap.exists())
