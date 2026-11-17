@@ -16,6 +16,9 @@ case "$1 $2" in
     if [[ "$*" == *"--state open"* ]]; then
       [[ -n "${GH_OPEN_FAIL:-}" ]] && exit 1
       printf '%s' "${GH_OPEN_BRANCHES:-}"
+      [[ -n "${GH_OPEN_PRS:-}" ]] && printf '%s\n' "$GH_OPEN_PRS"
+    elif [[ "$*" == *"--state merged"* ]]; then
+      [[ -n "${GH_MERGED_PRS:-}" ]] && printf '%s\n' "$GH_MERGED_PRS"
     fi
     exit 0 ;;
 esac
@@ -294,6 +297,99 @@ class CleanReposTests(unittest.TestCase):
         output = self.run_script('apply')
         self.assertIn('reason=uncommitted-changes', output)
         self.assertTrue(path.exists())
+
+    def commit_on_main(self, subject, filename):
+        (self.repo / filename).write_text(f'{subject}\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', subject)
+        git(self.repo, 'push', '-q', 'origin', 'main')
+
+    def assert_worktree_kept(self, path, branch):
+        self.assertTrue(path.exists())
+        self.assertTrue(self.branch_exists(branch))
+
+    def test_unmerged_worktree_is_reported_and_kept(self):
+        path = self.add_worktree('feature/u', merged=False)
+        scan = self.run_script('scan')
+        self.assertIn('unmerged-worktree (not proven merged, never removed)', scan)
+        self.assertIn('ahead=1 pushed=no pr=none', scan)
+        output = self.run_script('apply')
+        self.assertIn(f'keep-worktree={path} branch=feature/u reason=unmerged-worktree', output)
+        self.assertIn('kept-unmerged=1', output)
+        self.assertNotIn('skipped=1', output)
+        self.assert_worktree_kept(path, 'feature/u')
+
+    def test_unmerged_worktree_reports_push_and_pr_state(self):
+        path = self.add_worktree('feature/p', merged=False)
+        git(self.repo, 'push', '-q', 'origin', 'feature/p')
+        git(self.repo, 'branch', '-q', '--set-upstream-to=origin/main', 'feature/p')
+        scan = self.run_script('scan', GH_OPEN_PRS='feature/p\t12')
+        self.assertIn('pushed=yes pr=#12', scan)
+        (path / 'more.txt').write_text('more\n')
+        git(path, 'add', '.')
+        git(path, 'commit', '-q', '-m', 'local only')
+        scan = self.run_script('scan', GH_OPEN_PRS='feature/p\t12')
+        self.assertIn('pushed=partial:1 pr=#12', scan)
+
+    def test_squash_under_another_name_is_hinted_and_kept(self):
+        path = self.add_worktree('feature/s', merged=False)
+        self.commit_on_main('work on feature/s (#39)', 'other.txt')
+        scan = self.run_script('scan')
+        self.assertIn('likely-superseded-by=#39', scan)
+        self.run_script('apply')
+        self.assert_worktree_kept(path, 'feature/s')
+
+    def test_merged_pr_title_gives_the_hint(self):
+        self.add_worktree('feature/t', merged=False)
+        sep = '\x1f'
+        merged = sep.join(['elsewhere', 'a' * 40, 'b' * 40, '77', 'work on feature/t'])
+        scan = self.run_script('scan', GH_MERGED_PRS=merged)
+        self.assertIn('likely-superseded-by=#77', scan)
+
+    def test_cherry_picked_content_is_flagged_and_kept(self):
+        path = self.add_worktree('feature/c', merged=False)
+        self.commit_on_main('trunk moves on', 'moved.txt')
+        git(self.repo, 'cherry-pick', 'feature/c')
+        git(self.repo, 'push', '-q', 'origin', 'main')
+        scan = self.run_script('scan')
+        self.assertIn('content-on-trunk=yes', scan)
+        self.run_script('apply')
+        self.assert_worktree_kept(path, 'feature/c')
+
+    def test_excluded_branch_is_not_reported_as_unmerged(self):
+        self.add_worktree('feature/x', merged=False)
+        scan = self.run_script('scan', '--exclude', 'feature/x')
+        self.assertNotIn('unmerged-worktree (', scan)
+
+    def test_detached_head_worktree_is_reported(self):
+        path = self.repo / '.claude' / 'worktrees' / 'detached'
+        git(self.repo, 'worktree', 'add', '-q', '--detach', str(path), 'main')
+        (path / 'd.txt').write_text('d\n')
+        git(path, 'add', '.')
+        git(path, 'commit', '-q', '-m', 'detached work')
+        sha = git(path, 'rev-parse', '--short=7', 'HEAD').strip()
+        scan = self.run_script('scan')
+        self.assertIn(f'{path}:(detached {sha})', scan)
+        self.assertIn('ahead=1 pushed=no', scan)
+        self.run_script('apply')
+        self.assertTrue(path.exists())
+
+    def test_unmerged_worktree_reports_dirty_state_and_plans(self):
+        path = self.add_worktree('feature/dp', merged=False)
+        (path / 'scratch.txt').write_text('s\n')
+        plans = path / '.agent-plans'
+        plans.mkdir()
+        (plans / 'plan.md').write_text('plan\n')
+        scan = self.run_script('scan')
+        self.assertIn('unmerged-worktree', scan)
+        self.assertIn('scratch.txt', scan)
+        self.assertIn('plans=1: plan.md', scan)
+
+    def test_repo_with_only_unmerged_worktree_is_not_clean(self):
+        self.add_worktree('feature/only', merged=False)
+        scan = self.run_script('scan')
+        self.assertIn('clean=0', scan)
+        self.assertIn('unmerged-worktrees=1', scan)
 
 
 if __name__ == '__main__':

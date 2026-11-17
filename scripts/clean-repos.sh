@@ -5,6 +5,8 @@
 # is exactly what `apply` acts on — re-derived fresh at apply time (fresh
 # fetch, fresh merge check) rather than passed back as a fragile branch list,
 # since state can drift in the time it takes a human to read the plan.
+# Every other worktree is still reported (unmerged-worktree) so the scan is a
+# full inventory, but nothing in that category is ever removed.
 #
 # Usage:
 #   clean-repos.sh scan  [git-root] [options]
@@ -247,7 +249,81 @@ worktree_dirty_summary() {
   echo "$summary"
 }
 
-scanned=0; with_candidates=0; clean=0; errors=0
+# yes when the remote holds every local commit, no when there is no remote
+# counterpart, partial:K when K local commits are not on it.
+branch_push_state() {
+  local br="$1" remote count
+  # The branch's own remote counterpart, not its upstream: a branch cut from origin/main tracks that instead.
+  remote="$(git rev-parse -q --verify "refs/remotes/origin/$br" 2>/dev/null)" \
+    || { echo no; return; }
+  count="$(git rev-list --count "$remote..refs/heads/$br" 2>/dev/null)" || { echo unknown; return; }
+  if [[ "$count" == 0 ]]; then echo yes; else echo "partial:$count"; fi
+}
+
+# Hint only, never a deletion signal: a squash merged under another branch name
+# keeps the commit subject (plus " (#N)"), but the PR may have changed the
+# content, or a later PR reworked it, so a matching subject proves nothing about
+# loss. Compares the subjects of the branch's commits (via `git cherry`) with
+# trunk subjects since the merge-base, then with merged PR titles.
+superseded_hint() {
+  local ref="$1" mb sha subject key n total=0 matched=0 refs=""
+  local -A trunk_subjects=()
+  mb="$(git merge-base "$ref" "origin/$trunk" 2>/dev/null)" || return 0
+  while IFS=$'\t' read -r sha subject; do
+    if [[ "$subject" =~ ^(.*)\ \(#([0-9]+)\)$ ]]; then
+      key="${BASH_REMATCH[1]}"; n="#${BASH_REMATCH[2]}"
+    else
+      key="$subject"; n="$sha"
+    fi
+    [[ -n "$key" && -z "${trunk_subjects[$key]:-}" ]] && trunk_subjects["$key"]="$n"
+  done < <(git log --format='%h%x09%s' "$mb..origin/$trunk" 2>/dev/null)
+  while read -r _ sha; do
+    total=$((total + 1))
+    subject="$(git log -1 --format=%s "$sha" 2>/dev/null)"
+    [[ "$subject" =~ ^(.*)\ \(#([0-9]+)\)$ ]] && subject="${BASH_REMATCH[1]}"
+    [[ -n "$subject" ]] || continue
+    n="${trunk_subjects[$subject]:-${merged_pr_by_title[$subject]:-}}"
+    [[ -n "$n" ]] || continue
+    matched=$((matched + 1))
+    [[ ",$refs," == *",$n,"* ]] || refs+="${refs:+,}$n"
+  done < <(git cherry "origin/$trunk" "$ref" 2>/dev/null)
+  if [[ $matched -gt 0 && $matched -eq $total ]]; then
+    echo "likely-superseded-by=$refs"
+  elif [[ $matched -gt 0 ]]; then
+    echo "subject-matches=$matched/$total:$refs"
+  fi
+}
+
+# Context for deciding a worktree's fate by hand. br is empty for a detached HEAD.
+unmerged_worktree_summary() {
+  local path="$1" ref="$2" br="$3" summary hint
+  if [[ ! -d "$path" ]]; then
+    echo missing
+    return
+  fi
+  summary="ahead=$(git rev-list --count "origin/$trunk..$ref" 2>/dev/null || echo '?')"
+  if [[ -n "$br" ]]; then
+    summary+=" pushed=$(branch_push_state "$br")"
+    if $open_prs_known; then
+      summary+=" pr=${open_pr_number[$br]:-none}"
+    else
+      summary+=" pr=unknown"
+    fi
+  elif [[ -n "$(git for-each-ref --contains "$ref" refs/remotes/origin 2>/dev/null)" ]]; then
+    summary+=" pushed=yes"
+  else
+    summary+=" pushed=no"
+  fi
+  summary+=" $(worktree_dirty_summary "$path")"
+  if branch_fully_cherry_merged "$ref" || branch_adds_nothing_to_trunk "$ref"; then
+    summary+=" content-on-trunk=yes"
+  fi
+  hint="$(superseded_hint "$ref")"
+  [[ -z "$hint" ]] || summary+=" $hint"
+  echo "$summary"
+}
+
+scanned=0; with_candidates=0; clean=0; errors=0; unmerged_total=0; kept_unmerged=0
 deleted_local=0; deleted_remote=0; removed_worktrees=0; skipped=0
 
 for repo in "$git_root"/*/; do
@@ -310,6 +386,7 @@ for repo in "$git_root"/*/; do
   # accurately instead of retrying a check that's guaranteed to fail.
   local_squash_verified=()
   local_squash_unverified=()
+  declare -A merged_pr_by_title=()
   if command -v gh >/dev/null 2>&1 && gh repo view >/dev/null 2>&1; then
     # A branch name can be reused across several merged PRs over time (e.g.
     # feature/x merged, then reopened and merged again later). Collect every
@@ -318,14 +395,15 @@ for repo in "$git_root"/*/; do
     # in — otherwise the same branch can land in both buckets depending on
     # which merge commit happened to be checked last.
     declare -A branch_oids=()
-    while IFS=$'\t' read -r b head_oid oid; do
+    while IFS=$'\x1f' read -r b head_oid oid pr_number pr_title; do
       [[ -z "$b" ]] && continue
+      [[ -n "$pr_title" && -z "${merged_pr_by_title[$pr_title]:-}" ]] && merged_pr_by_title["$pr_title"]="#$pr_number"
       branch_oids["$b"]="${branch_oids[$b]:-}${branch_oids[$b]:+ }$oid"
       # A branch name reused after its PR merged (e.g. a bot force-pushing one stable name) carries new, unmerged
       # commits: only treat the remote as merged when its tip is exactly what the PR merged.
       [[ "$(git rev-parse -q --verify "refs/remotes/origin/$b" 2>/dev/null)" == "$head_oid" ]] && remote_candidates+=("$b")
-    done < <(gh pr list --state merged --base "$trunk" --json headRefName,mergeCommit,headRefOid \
-      --jq '.[] | "\(.headRefName)\t\(.headRefOid)\t\(.mergeCommit.oid // "")"' --limit 100 2>/dev/null || true)
+    done < <(gh pr list --state merged --base "$trunk" --json headRefName,mergeCommit,headRefOid,number,title \
+      --jq '.[] | "\(.headRefName)\u001f\(.headRefOid)\u001f\(.mergeCommit.oid // "")\u001f\(.number)\u001f\(.title)"' --limit 100 2>/dev/null || true)
 
     for b in "${!branch_oids[@]}"; do
       git show-ref --verify --quiet "refs/heads/$b" || continue
@@ -375,8 +453,14 @@ for repo in "$git_root"/*/; do
   # open PR, and deleting one closes that PR, so remote deletion is skipped.
   open_prs_known=true
   open_pr_branches=()
-  if open_pr_out="$(gh pr list --state open --json headRefName --jq '.[].headRefName' --limit 200 2>/dev/null)"; then
-    mapfile -t open_pr_branches <<<"$open_pr_out"
+  declare -A open_pr_number=()
+  if open_pr_out="$(gh pr list --state open --json headRefName,number --jq '.[] | "\(.headRefName)\t\(.number)"' --limit 200 2>/dev/null)"; then
+    while IFS=$'\t' read -r b pr_number; do
+      [[ -n "$b" ]] || continue
+      open_pr_branches+=("$b")
+      open_pr_number["$b"]="${pr_number:+#$pr_number}"
+      open_pr_number["$b"]="${open_pr_number[$b]:-open}"
+    done <<<"$open_pr_out"
   else
     open_prs_known=false
   fi
@@ -419,10 +503,21 @@ for repo in "$git_root"/*/; do
   # Worktrees tied to a now-merged local branch (skip the main worktree, i.e. $repo itself).
   worktree_paths=()
   worktree_branches=()
+  detached_paths=()
+  detached_heads=()
   current_path=""
+  current_head=""
   while IFS= read -r line; do
     if [[ "$line" == worktree\ * ]]; then
       current_path="${line#worktree }"
+      current_head=""
+    elif [[ "$line" == HEAD\ * ]]; then
+      current_head="${line#HEAD }"
+    elif [[ "$line" == detached ]]; then
+      if [[ "$current_path" != "$repo" ]]; then
+        detached_paths+=("$current_path")
+        detached_heads+=("$current_head")
+      fi
     elif [[ "$line" == branch\ refs/heads/* ]]; then
       br="${line#branch refs/heads/}"
       if [[ "$current_path" != "$repo" ]]; then
@@ -492,15 +587,43 @@ for repo in "$git_root"/*/; do
       && worktree_removals+=("${worktree_paths[$i]}:$br")
   done
 
+  # Everything else is only reported: not proven merged, so never removed.
+  unmerged_worktrees=()
+  unmerged_details=()
+  unmerged_branches=()
+  if ! $remote_only; then
+    for i in "${!worktree_branches[@]}"; do
+      br="${worktree_branches[$i]}"
+      path="${worktree_paths[$i]}"
+      contains "$br" "${excludes[@]}" && continue
+      contains "$path:$br" "${worktree_removals[@]}" && continue
+      contains "$path:$br" "${dirty_worktrees[@]}" && continue
+      contains "$path:$br" "${new_empty_worktrees[@]}" && continue
+      contains "$path:$br" "${stale_empty_worktrees[@]}" && continue
+      unmerged_worktrees+=("$path:$br")
+      unmerged_branches+=("$br")
+      unmerged_details+=("$(unmerged_worktree_summary "$path" "refs/heads/$br" "$br")")
+    done
+    for i in "${!detached_paths[@]}"; do
+      path="${detached_paths[$i]}"
+      sha="${detached_heads[$i]}"
+      unmerged_worktrees+=("$path:(detached ${sha:0:7})")
+      unmerged_branches+=("")
+      unmerged_details+=("$(unmerged_worktree_summary "$path" "$sha" "")")
+    done
+  fi
+
   if [[ ${#kept_local[@]} -eq 0 && ${#kept_local_squash_verified[@]} -eq 0 \
         && ${#kept_local_squash_unverified[@]} -eq 0 && ${#kept_remote[@]} -eq 0 \
         && ${#worktree_removals[@]} -eq 0 && ${#dirty_worktrees[@]} -eq 0 \
-        && ${#new_empty_worktrees[@]} -eq 0 && ${#stale_empty_worktrees[@]} -eq 0 ]] \
+        && ${#new_empty_worktrees[@]} -eq 0 && ${#stale_empty_worktrees[@]} -eq 0 \
+        && ${#unmerged_worktrees[@]} -eq 0 ]] \
         && ! $remote_skipped_unknown; then
     clean=$((clean + 1))
     continue
   fi
   with_candidates=$((with_candidates + 1))
+  unmerged_total=$((unmerged_total + ${#unmerged_worktrees[@]}))
 
   if [[ "$mode" == "scan" ]]; then
     echo "repo=$name flow=$flow trunk=$trunk"
@@ -515,6 +638,9 @@ for repo in "$git_root"/*/; do
     done
     for i in "${!dirty_worktrees[@]}"; do
       echo "  dirty-worktree (changes or plans, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
+    done
+    for i in "${!unmerged_worktrees[@]}"; do
+      echo "  unmerged-worktree (not proven merged, never removed): ${unmerged_worktrees[$i]} [${unmerged_details[$i]}]"
     done
     $remote_skipped_unknown && echo "  open-prs-unknown (gh pr list failed, remote deletion skipped for this repo)"
     [[ ${#new_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-new-empty (branch created but never committed to, branch kept, not touched): ${new_empty_worktrees[*]}"
@@ -581,6 +707,11 @@ for repo in "$git_root"/*/; do
       echo "repo=$name skip-worktree=${dw%%:*} branch=${dw#*:} reason=${dirty_reasons[$i]}"
       skipped=$((skipped + 1))
     done
+    for i in "${!unmerged_worktrees[@]}"; do
+      uw="${unmerged_worktrees[$i]}"
+      echo "repo=$name keep-worktree=${uw%%:*} branch=${uw#*:} reason=unmerged-worktree ${unmerged_details[$i]}"
+      kept_unmerged=$((kept_unmerged + 1))
+    done
     for b in "${kept_local[@]}"; do
       # Ancestry vs origin/$trunk, not `git branch -d`'s HEAD/upstream check: a stale local trunk would refuse merged branches.
       if git merge-base --is-ancestor "$b" "origin/$trunk" 2>/dev/null \
@@ -643,7 +774,7 @@ for repo in "$git_root"/*/; do
 done
 
 if [[ "$mode" == "scan" ]]; then
-  echo "summary: scanned=$scanned with-candidates=$with_candidates clean=$clean errors=$errors"
+  echo "summary: scanned=$scanned with-candidates=$with_candidates clean=$clean errors=$errors unmerged-worktrees=$unmerged_total"
 else
-  echo "summary: deleted-local=$deleted_local deleted-remote=$deleted_remote removed-worktrees=$removed_worktrees skipped=$skipped"
+  echo "summary: deleted-local=$deleted_local deleted-remote=$deleted_remote removed-worktrees=$removed_worktrees skipped=$skipped kept-unmerged=$kept_unmerged"
 fi
