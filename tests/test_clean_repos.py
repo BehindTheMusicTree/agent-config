@@ -398,6 +398,15 @@ class CleanReposTests(unittest.TestCase):
         self.assert_worktree_kept(path, 'feature/a')
         self.assertTrue(self.remote_has('feature/a'))
 
+    def test_excluded_path_of_a_deleted_worktree_protects_its_branch(self):
+        path = self.add_worktree('feature/a', merged=True)
+        excluded = self.unresolved(path)
+        shutil.rmtree(path)
+        output = self.run_script('apply', '--exclude', excluded, GH_OPEN_BRANCHES='')
+        self.assertNotIn('feature/a', output)
+        self.assertTrue(self.branch_exists('feature/a'))
+        self.assertTrue(self.remote_has('feature/a'))
+
     def test_relative_exclude_is_a_branch_name(self):
         path = self.add_worktree('feature/a', merged=True)
         output = self.run_script('apply', '--exclude', 'repo/.claude/worktrees/feature-a', GH_OPEN_BRANCHES='')

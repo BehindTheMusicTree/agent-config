@@ -45,11 +45,20 @@ exclude_repos=()
 stale_empty_days=1
 
 # Physical path when it exists (git and the user may spell symlinked parents
-# differently, e.g. /var vs /private/var), else the path without trailing slashes.
+# differently, e.g. /var vs /private/var), without trailing slashes.
 canonical_path() {
-  local path="$1"
+  local path="$1" tail="" dir
   while [[ "$path" == */ && "$path" != / ]]; do path="${path%/}"; done
-  (cd "$path" 2>/dev/null && pwd -P) || printf '%s\n' "$path"
+  # A worktree directory deleted by hand (git lists it as prunable) no longer
+  # exists: resolve its deepest existing ancestor and keep the missing tail.
+  while [[ ! -d "$path" && "$path" == /?* ]]; do
+    tail="/${path##*/}$tail"
+    path="${path%/*}"
+    [[ -n "$path" ]] || path=/
+  done
+  dir="$(cd "$path" 2>/dev/null && pwd -P)" || dir="$path"
+  [[ "$dir" != / || -z "$tail" ]] || dir=""
+  printf '%s\n' "$dir$tail"
 }
 
 while [[ $# -gt 0 ]]; do
