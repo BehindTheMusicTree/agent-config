@@ -7,6 +7,10 @@
 - Plan lifecycle: `create-pr` reconciles `.agent-plans/` into the PR body and follow-up issues and records it in a ledger (`scripts/plan-ledger.py record|status`); `cleanup-session` treats reconciled plans as disposable and asks only about unreconciled or modified ones.
 - `new-worktree-setup.sh --plan <abs path>` moves the session's plan-mode file into the new worktree's `.agent-plans/`, verified with `cmp`.
 
+### Fixed
+
+- `clean-repos` / `cleanup-session`: `--exclude` accepts an absolute worktree path, which protects that worktree and its branch and is the only way to exclude a detached HEAD; `apply` no longer spends time on the scan-only `likely-superseded-by` hint for unmerged worktrees.
+
 ## [3.3.0] - 2026-11-17
 
 ### Changed
