@@ -66,6 +66,38 @@ class WorktreePathsTests(unittest.TestCase):
             result = subprocess.run(['git', 'show-ref', '--verify', '--quiet', 'refs/heads/fix/conflict'], cwd=root)
             self.assertNotEqual(result.returncode, 0)
 
+    def test_plan_is_moved_into_new_worktree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'repo'
+            root.mkdir()
+            run('git', 'init', '-q', '-b', 'main', cwd=root)
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-q', '--allow-empty', '-m', 'initial', cwd=root)
+            session = Path(directory) / 'session'
+            (session / '.agent-plans').mkdir(parents=True)
+            (session / '.agent-plans' / 'random-name.md').write_text('approved plan\n')
+            script = str(SCRIPTS / 'new-worktree-setup.sh')
+            output = run(script, '--plan', str(session / '.agent-plans/random-name.md'), 'codex', 'feature/topic', 'main',
+                         cwd=root)
+            destination = root.resolve() / '.codex/worktrees/feature-topic/.agent-plans/topic.md'
+            self.assertIn(f'plan_copied={destination}', output)
+            self.assertIn('status=ok', output)
+            self.assertEqual(destination.read_text(), 'approved plan\n')
+            self.assertFalse((session / '.agent-plans').exists())
+
+            # A non-empty source directory (a committed .gitignore) is kept.
+            (root / '.agent-plans').mkdir()
+            (root / '.agent-plans' / '.gitignore').write_text('*\n!.gitignore\n')
+            (root / '.agent-plans' / 'second.md').write_text('second\n')
+            output = run(script, 'codex', 'fix/second', 'main', '--plan', '.agent-plans/second.md', cwd=root)
+            self.assertIn('status=ok', output)
+            self.assertNotIn('plan_source_dir_removed', output)
+            self.assertEqual(sorted(p.name for p in (root / '.agent-plans').iterdir()), ['.gitignore'])
+
+            output = run(script, '--plan', str(session / 'missing.md'), 'codex', 'fix/missing', 'main', cwd=root)
+            self.assertIn('status=blocked reason=plan-not-a-readable-file', output)
+            self.assertFalse((root / '.codex/worktrees/fix-missing').exists())
+
     def test_conflicting_plan_rule_cleans_up_new_worktree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'repo'
