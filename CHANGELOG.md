@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-11-17
+
 ### Changed
 
 - `clean-repos` stale-empty threshold default lowered from 7 to 1 day (`--stale-empty-days`).
