@@ -382,14 +382,13 @@ handoff_key() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | tr -s '-'
 # Arguments: branches apply is about to delete, treated as gone (scan's
 # prediction). Prints "<path>\t<reason>" per recap to remove.
 stale_handoffs() {
-  local common repo_key refs file stem key rest c b age_key=false is_live is_deleting
+  local common refs file stem rest c b is_protected is_live is_aged is_deleting
   local -a cands=()
   local -A live=() protected=() trunks=() deleting=() deleting_names=()
   common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 0
   # Without the branch list every recap would look orphaned.
   refs="$(git for-each-ref --format='%(refname:lstrip=2)' refs/heads)" \
     || { echo "repo=$name warning: cannot list branches, handoff recaps kept" >&2; return 0; }
-  repo_key="$(handoff_key "$name")"
   for b in "$@"; do
     [[ -n "$b" ]] || continue
     deleting_names["$b"]=1
@@ -407,34 +406,35 @@ stale_handoffs() {
     stem="${file##*/agent-handoff-}"
     stem="$(handoff_key "${stem%.md}")"
     [[ -n "$stem" ]] || continue
-    key="${stem#"$repo_key"-}"
-    [[ -n "$key" ]] || key="$stem"
-    # A legacy name has no repo prefix; when stripping one changed the stem, test both readings.
-    [[ -n "${protected[$key]:-}" || -n "${protected[$stem]:-}" ]] && continue
-    age_key=false
-    [[ -n "${trunks[$key]:-}" || -n "${trunks[$stem]:-}" ]] && age_key=true
-    [[ "$key" =~ ^detached-[0-9a-f]+$ || "$stem" =~ ^detached-[0-9a-f]+$ ]] && age_key=true
-    if $age_key; then
-      [[ -n "$(find "$file" -mmin +"$((handoff_days * 1440))" 2>/dev/null)" ]] \
-        && printf '%s\t%s\n' "$file" "older-than-${handoff_days}d"
-      continue
-    fi
     # The repo prefix is the directory name when the recap was written; a
-    # renamed or symlinked repo leaves another prefix. Every dash-separated
-    # suffix of the stem is a possible branch key, which also covers $key.
+    # renamed or symlinked repo leaves another prefix, and legacy names have
+    # none. Every dash-separated suffix of the stem is a possible branch key.
     cands=("$stem")
     rest="$stem"
     while [[ "$rest" == *-* ]]; do
       rest="${rest#*-}"
       cands+=("$rest" "-$rest")
     done
-    is_live=false; is_deleting=false
+    is_protected=false; is_live=false; is_aged=false; is_deleting=false
     for c in "${cands[@]}"; do
       [[ -n "$c" ]] || continue
-      [[ -n "${live[$c]:-}" ]] && is_live=true
+      [[ -n "${protected[$c]:-}" ]] && is_protected=true
+      if [[ -n "${trunks[$c]:-}" || "$c" =~ ^detached-[0-9a-f]+$ ]]; then
+        is_aged=true
+      elif [[ -n "${live[$c]:-}" ]]; then
+        is_live=true
+      fi
       [[ -n "${deleting[$c]:-}" ]] && is_deleting=true
     done
+    # A live branch's recap is never removed, even when a suffix also reads as
+    # a trunk (feature-main); trunk and detached recaps expire by age.
+    $is_protected && continue
     $is_live && continue
+    if $is_aged; then
+      [[ -n "$(find "$file" -mmin +"$((handoff_days * 1440))" 2>/dev/null)" ]] \
+        && printf '%s\t%s\n' "$file" "older-than-${handoff_days}d"
+      continue
+    fi
     if $is_deleting; then
       printf '%s\t%s\n' "$file" branch-deleted-on-apply
     else

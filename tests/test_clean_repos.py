@@ -525,6 +525,39 @@ class CleanReposTests(unittest.TestCase):
         self.assertTrue(recap.exists())
         self.assertFalse(orphan.exists())
 
+    def test_foreign_prefix_trunk_detached_and_protected_handoffs_are_not_orphans(self):
+        detached = self.handoff('old-name-detached-abc1234', days_old=1)
+        trunk = self.handoff('old-name-main', days_old=1)
+        protected = self.handoff('old-name-feature-kept')
+        expired = self.handoff('old-name-detached-def5678', days_old=8)
+        scan = self.run_script('scan', '--exclude', 'feature/kept')
+        for recap in (detached, trunk, protected):
+            self.assertNotIn(str(recap), scan)
+        self.assertIn(f'{expired} [older-than-7d]', scan)
+
+    def test_handoff_of_a_live_branch_named_like_a_trunk_is_kept(self):
+        self.add_worktree('feature/main', merged=False)
+        recap = self.handoff('feature-main', days_old=30)
+        self.assertNotIn('stale-handoff', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertTrue(recap.exists())
+
+    def test_handoffs_are_kept_when_branches_cannot_be_listed(self):
+        recap = self.handoff('repo-feature-gone')
+        shim = self.bin / 'git'
+        shim.write_text(
+            '#!/usr/bin/env bash\n'
+            'if [[ "$1" == for-each-ref && "$3" == refs/heads ]]; then exit 1; fi\n'
+            f'exec {shutil.which("git")} "$@"\n')
+        shim.chmod(0o755)
+        full_env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}'}
+        result = subprocess.run(
+            [shutil.which('bash'), str(SCRIPT), 'apply', str(self.root)],
+            env=full_env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('cannot list branches, handoff recaps kept', result.stderr)
+        self.assertTrue(recap.exists())
+
     def test_handoff_of_a_live_non_ascii_branch_is_kept(self):
         self.add_worktree('feature/café', merged=False)
         # The handoff workflow replaces the character, not its bytes.
