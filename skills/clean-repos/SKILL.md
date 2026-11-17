@@ -31,7 +31,7 @@ Prints one block per repo with candidates (clean repos are silent), then a `summ
 - `local-squash-merged-unverified:` — merged per `gh`, but the branch's own patch differs from the merge commit. `apply` always skips these; the user can `git branch -D` them after checking the PR landed.
 - `dirty-worktree:` — branch looks merged but the worktree has uncommitted edits, summarized as tracked/untracked counts (untracked files listed). Excluded from deletion; that diff is the only copy of the work. Never discard it without the user's explicit say-so.
 - `worktrees-new-empty:` — branch created but never committed to, recently or with the worktree dirty or in use. Excluded from deletion.
-- `worktrees-stale-empty:` — branch never committed to and created more than 7 days ago (`--stale-empty-days`), worktree clean, no process mentions its path and `lsof` shows nothing open in it. `apply` re-checks all of that, then removes the worktree and its branch; it never kills processes for these. Ignored files in the worktree (`.env`, `node_modules`, `.agent-tmp`) are lost on removal, as for merged worktrees.
+- `worktrees-stale-empty:` — branch never committed to and created more than 1 day ago (`--stale-empty-days`), worktree clean, no process mentions its path and `lsof` shows nothing open in it. `apply` re-checks all of that, then removes the worktree and its branch; it never kills processes for these. Ignored files in the worktree (`.env`, `node_modules`, `.agent-tmp`) are lost on removal, as for merged worktrees.
 - `running-processes:` — processes started from a worktree that `apply` will kill before removing it.
 - `open-prs-unknown` — `gh` could not list open PRs, so remote deletion is skipped for that repo (deleting a PR's branch closes it).
 

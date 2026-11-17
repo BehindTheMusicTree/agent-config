@@ -2,12 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `clean-repos` stale-empty threshold default lowered from 7 to 1 day (`--stale-empty-days`).
+
 ## [3.2.0] - 2026-11-17
 
 ### Changed
 
 - Store plans in ignored `.agent-plans/` directories and protect them from worktree cleanup until the user decides their fate; manage both agent directory exclusions.
-- `clean-repos` removes never-committed worktrees and their branches once the branch is older than `--stale-empty-days` (default 7) and the worktree is clean and idle (no process mentions it, `lsof` shows nothing open); recent, dirty or in-use ones stay untouched.
+- `clean-repos` removes never-committed worktrees and their branches once the branch is older than `--stale-empty-days` (default 7, lowered to 1 in a later release) and the worktree is clean and idle (no process mentions it, `lsof` shows nothing open); recent, dirty or in-use ones stay untouched.
 
 ## [3.1.3] - 2026-11-15
 

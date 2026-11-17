@@ -17,7 +17,7 @@
 #   --local-only              skip remote branch deletion
 #   --remote-only              skip local branch deletion
 #   --stale-empty-days <n>    never-committed worktrees whose branch is older
-#                             than n days (default 7) and that are clean and
+#                             than n days (default 1) and that are clean and
 #                             idle are removed with their branch on apply
 #
 # git-root defaults to ~/git.
@@ -37,7 +37,7 @@ remote_only=false
 excludes=()
 only_repos=()
 exclude_repos=()
-stale_empty_days=7
+stale_empty_days=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

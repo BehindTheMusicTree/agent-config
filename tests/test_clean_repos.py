@@ -98,7 +98,7 @@ class CleanReposTests(unittest.TestCase):
         return bool(git(self.repo, 'branch', '--list', branch).strip())
 
     def test_recent_empty_worktree_is_kept(self):
-        path = self.add_empty_worktree('feature/fresh', days_old=1)
+        path = self.add_empty_worktree('feature/fresh', days_old=0)
         self.assertIn('worktrees-new-empty', self.run_script('scan'))
         output = self.run_script('apply')
         self.assertNotIn('feature/fresh', output)
@@ -108,7 +108,7 @@ class CleanReposTests(unittest.TestCase):
     def test_stale_idle_empty_worktree_is_removed_with_its_branch(self):
         path = self.add_empty_worktree('feature/stale', days_old=30)
         scan = self.run_script('scan')
-        self.assertIn('worktrees-stale-empty (never committed to, branch older than 7d', scan)
+        self.assertIn('worktrees-stale-empty (never committed to, branch older than 1d', scan)
         self.assertIn(f'{path}:feature/stale', scan)
         self.assertNotIn('worktrees-new-empty', scan)
         output = self.run_script('apply')
@@ -137,8 +137,8 @@ class CleanReposTests(unittest.TestCase):
 
     def test_stale_empty_days_option_sets_the_threshold(self):
         self.add_empty_worktree('feature/week', days_old=3)
-        self.assertIn('worktrees-new-empty', self.run_script('scan'))
-        self.assertIn('worktrees-stale-empty', self.run_script('scan', '--stale-empty-days', '2'))
+        self.assertIn('worktrees-stale-empty', self.run_script('scan'))
+        self.assertIn('worktrees-new-empty', self.run_script('scan', '--stale-empty-days', '5'))
 
     def test_stale_empty_worktree_with_only_ignored_files_is_removed(self):
         path = self.add_empty_worktree('feature/ignored', days_old=30)
