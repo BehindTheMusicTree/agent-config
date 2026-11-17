@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-17
+
 ### Changed
 
 - `clean-repos` now inventories every worktree: a new `unmerged-worktree` category reports unmerged commits, open PRs and detached HEADs (with `likely-superseded-by=#N` hints) and `apply` never removes them.
