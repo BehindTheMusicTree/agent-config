@@ -336,7 +336,9 @@ class CleanReposTests(unittest.TestCase):
         self.commit_on_main('work on feature/s (#39)', 'other.txt')
         scan = self.run_script('scan')
         self.assertIn('likely-superseded-by=#39', scan)
-        self.run_script('apply')
+        output = self.run_script('apply')
+        self.assertIn(f'keep-worktree={path} branch=feature/s reason=unmerged-worktree', output)
+        self.assertNotIn('likely-superseded-by', output)
         self.assert_worktree_kept(path, 'feature/s')
 
     def test_merged_pr_title_gives_the_hint(self):
@@ -373,6 +375,42 @@ class CleanReposTests(unittest.TestCase):
         self.assertIn('ahead=1 pushed=no', scan)
         self.run_script('apply')
         self.assertTrue(path.exists())
+
+    def unresolved(self, path):
+        # The temp dir as spelled before resolve() (on macOS /var/... for /private/var/...), plus a trailing slash.
+        return str(Path(self.tmp.name) / path.relative_to(Path(self.tmp.name).resolve())) + '/'
+
+    def test_excluded_detached_worktree_path_is_not_reported(self):
+        path = self.repo / '.claude' / 'worktrees' / 'detached'
+        git(self.repo, 'worktree', 'add', '-q', '--detach', str(path), 'main')
+        scan = self.run_script('scan', '--exclude', self.unresolved(path))
+        self.assertNotIn('unmerged-worktree (', scan)
+        output = self.run_script('apply', '--exclude', self.unresolved(path))
+        self.assertIn('kept-unmerged=0', output)
+        self.assertTrue(path.exists())
+
+    def test_excluded_worktree_path_protects_its_merged_branch(self):
+        path = self.add_worktree('feature/a', merged=True)
+        scan = self.run_script('scan', '--exclude', self.unresolved(path), GH_OPEN_BRANCHES='')
+        self.assertNotIn('feature/a', scan)
+        output = self.run_script('apply', '--exclude', self.unresolved(path), GH_OPEN_BRANCHES='')
+        self.assertNotIn('feature/a', output)
+        self.assert_worktree_kept(path, 'feature/a')
+        self.assertTrue(self.remote_has('feature/a'))
+
+    def test_excluded_path_of_a_deleted_worktree_protects_its_branch(self):
+        path = self.add_worktree('feature/a', merged=True)
+        excluded = self.unresolved(path)
+        shutil.rmtree(path)
+        output = self.run_script('apply', '--exclude', excluded, GH_OPEN_BRANCHES='')
+        self.assertNotIn('feature/a', output)
+        self.assertTrue(self.branch_exists('feature/a'))
+        self.assertTrue(self.remote_has('feature/a'))
+
+    def test_relative_exclude_is_a_branch_name(self):
+        path = self.add_worktree('feature/a', merged=True)
+        output = self.run_script('apply', '--exclude', 'repo/.claude/worktrees/feature-a', GH_OPEN_BRANCHES='')
+        self.assertIn(f'removed-worktree={path}', output)
 
     def test_unmerged_worktree_reports_dirty_state_and_plans(self):
         path = self.add_worktree('feature/dp', merged=False)

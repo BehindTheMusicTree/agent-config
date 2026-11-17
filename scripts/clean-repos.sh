@@ -13,7 +13,9 @@
 #   clean-repos.sh apply [git-root] [options]
 #
 # Options (repeatable where noted):
-#   --exclude <branch>       never touch this branch name, in any repo
+#   --exclude <branch|path>  never touch this branch name, in any repo, or the
+#                             worktree at this absolute path (and its branch);
+#                             a path is the only handle on a detached HEAD
 #   --only-repo <name>       limit to this repo (repeatable)
 #   --exclude-repo <name>    skip this repo (repeatable)
 #   --local-only              skip remote branch deletion
@@ -37,13 +39,38 @@ fi
 local_only=false
 remote_only=false
 excludes=()
+exclude_paths=()
 only_repos=()
 exclude_repos=()
 stale_empty_days=1
 
+# Physical path when it exists (git and the user may spell symlinked parents
+# differently, e.g. /var vs /private/var), without trailing slashes.
+canonical_path() {
+  local path="$1" tail="" dir
+  while [[ "$path" == */ && "$path" != / ]]; do path="${path%/}"; done
+  # A worktree directory deleted by hand (git lists it as prunable) no longer
+  # exists: resolve its deepest existing ancestor and keep the missing tail.
+  while [[ ! -d "$path" && "$path" == /?* ]]; do
+    tail="/${path##*/}$tail"
+    path="${path%/*}"
+    [[ -n "$path" ]] || path=/
+  done
+  dir="$(cd "$path" 2>/dev/null && pwd -P)" || dir="$path"
+  [[ "$dir" != / || -z "$tail" ]] || dir=""
+  printf '%s\n' "$dir$tail"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --exclude) excludes+=("$2"); shift 2 ;;
+    # Ref names never start with "/", so an absolute value is unambiguously a worktree path.
+    --exclude)
+      if [[ "$2" == /* ]]; then
+        exclude_paths+=("$(canonical_path "$2")")
+      else
+        excludes+=("$2")
+      fi
+      shift 2 ;;
     --only-repo) only_repos+=("$2"); shift 2 ;;
     --exclude-repo) exclude_repos+=("$2"); shift 2 ;;
     --local-only) local_only=true; shift ;;
@@ -60,6 +87,10 @@ contains() {
   local x
   for x in "$@"; do [[ "$x" == "$needle" ]] && return 0; done
   return 1
+}
+
+path_excluded() {
+  [[ ${#exclude_paths[@]} -gt 0 ]] && contains "$(canonical_path "$1")" "${exclude_paths[@]}"
 }
 
 # Direct tree comparison (tree(branch) vs tree(mergeCommit)) produces false
@@ -318,8 +349,11 @@ unmerged_worktree_summary() {
   if branch_fully_cherry_merged "$ref" || branch_adds_nothing_to_trunk "$ref"; then
     summary+=" content-on-trunk=yes"
   fi
-  hint="$(superseded_hint "$ref")"
-  [[ -z "$hint" ]] || summary+=" $hint"
+  # The hint walks trunk history per worktree and only informs a decision made from the scan.
+  if [[ "$mode" == scan ]]; then
+    hint="$(superseded_hint "$ref")"
+    [[ -z "$hint" ]] || summary+=" $hint"
+  fi
   echo "$summary"
 }
 
@@ -483,24 +517,8 @@ for repo in "$git_root"/*/; do
     remote_candidates=()
   fi
 
-  kept_local=()
-  for b in "${local_candidates[@]}"; do
-    contains "$b" "${excludes[@]}" || kept_local+=("$b")
-  done
-  kept_local_squash_verified=()
-  for b in "${local_squash_verified[@]}"; do
-    contains "$b" "${excludes[@]}" || kept_local_squash_verified+=("$b")
-  done
-  kept_local_squash_unverified=()
-  for b in "${local_squash_unverified[@]}"; do
-    contains "$b" "${excludes[@]}" || kept_local_squash_unverified+=("$b")
-  done
-  kept_remote=()
-  for b in "${remote_candidates[@]}"; do
-    contains "$b" "${excludes[@]}" || kept_remote+=("$b")
-  done
-
-  # Worktrees tied to a now-merged local branch (skip the main worktree, i.e. $repo itself).
+  # Every linked worktree (skip the main worktree, i.e. $repo itself); read
+  # before filtering candidates so an excluded path can protect its branch.
   worktree_paths=()
   worktree_branches=()
   detached_paths=()
@@ -526,6 +544,28 @@ for repo in "$git_root"/*/; do
       fi
     fi
   done < <(git worktree list --porcelain)
+
+  repo_excludes=("${excludes[@]}")
+  for i in "${!worktree_paths[@]}"; do
+    path_excluded "${worktree_paths[$i]}" && repo_excludes+=("${worktree_branches[$i]}")
+  done
+
+  kept_local=()
+  for b in "${local_candidates[@]}"; do
+    contains "$b" "${repo_excludes[@]}" || kept_local+=("$b")
+  done
+  kept_local_squash_verified=()
+  for b in "${local_squash_verified[@]}"; do
+    contains "$b" "${repo_excludes[@]}" || kept_local_squash_verified+=("$b")
+  done
+  kept_local_squash_unverified=()
+  for b in "${local_squash_unverified[@]}"; do
+    contains "$b" "${repo_excludes[@]}" || kept_local_squash_unverified+=("$b")
+  done
+  kept_remote=()
+  for b in "${remote_candidates[@]}"; do
+    contains "$b" "${repo_excludes[@]}" || kept_remote+=("$b")
+  done
 
   # A branch can look fully merged (zero commits ahead of trunk — e.g. it was
   # created off trunk and trunk simply moved past it) while its worktree still
@@ -595,7 +635,7 @@ for repo in "$git_root"/*/; do
     for i in "${!worktree_branches[@]}"; do
       br="${worktree_branches[$i]}"
       path="${worktree_paths[$i]}"
-      contains "$br" "${excludes[@]}" && continue
+      contains "$br" "${repo_excludes[@]}" && continue
       contains "$path:$br" "${worktree_removals[@]}" && continue
       contains "$path:$br" "${dirty_worktrees[@]}" && continue
       contains "$path:$br" "${new_empty_worktrees[@]}" && continue
@@ -607,6 +647,7 @@ for repo in "$git_root"/*/; do
     for i in "${!detached_paths[@]}"; do
       path="${detached_paths[$i]}"
       sha="${detached_heads[$i]}"
+      path_excluded "$path" && continue
       unmerged_worktrees+=("$path:(detached ${sha:0:7})")
       unmerged_branches+=("")
       unmerged_details+=("$(unmerged_worktree_summary "$path" "$sha" "")")
