@@ -6,12 +6,12 @@ Same as `new-worktree`, plus starting dev servers in the new worktree — for wh
 
 The branch name is: **$ARGUMENTS**
 
-If no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk.
+If no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk. When this session produced an approved plan outside the new worktree (plan mode writes to the session directory's `.agent-plans/`), pass its absolute path with `--plan`: the script moves it to `<worktree>/.agent-plans/<last branch segment>.md`, verifies the copy, deletes the source and removes the source `.agent-plans/` only when empty. Never pass a plan this session did not produce.
 
 ## Step 1 — Run the setup script
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree-setup.sh" claude <branch-name> [<base-ref>]
+"${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree-setup.sh" [--plan <absolute-plan-path>] claude <branch-name> [<base-ref>]
 ```
 
 Same script and behavior as `new-worktree`'s Step 1 — see that command for the full description. Run it with the Bash tool's `timeout: 600000` (the dependency install can exceed the 120s default). If `install_status=fail`, show the tail of `install_log` in the output. If `status=blocked`, stop and report the reason rather than trying to work around it manually.

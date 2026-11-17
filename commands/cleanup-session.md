@@ -10,7 +10,16 @@ Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote
 
 ## Step 1 — Scan (read-only)
 
-Before scanning, inventory this session's `.agent-plans/`, `.agent-tmp/` and any other known task outputs. Plans are not disposable: ask the user whether to promote, keep or discard each plan before removing the worktree. Preserve retained plans outside the worktree before removal. A worktree with plan contents is protected by the script (`agent-plans-present`); after the user's decision, move or discard those files and scan again. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
+Before scanning, inventory this session's `.agent-plans/`, `.agent-tmp/` and any other known task outputs. Plans are captured by the PR (`create-pr` reconciles them and records a ledger); check them against that ledger:
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/plan-ledger.py" status
+```
+
+Read the ledger's PR with `gh pr view <pr> --json state,headRefName`.
+- `reconciled` with a `MERGED` PR whose `headRefName` is this worktree's branch: delete the file without asking and list it under **Artifacts**.
+- Any other case (`modified`, `unrecorded`, a PR not merged or from another branch, no ledger, or a failing `status`): ask, with a reasoned recommendation, between reconciling now (an issue, or a comment on the merged PR), promoting (committing it to the repository, on the user's request) or discarding. There is no keep option without a destination.
+
+Apply the decisions before the scan. A worktree with plan contents stays protected by the script (`agent-plans-present`); if it still reports that guard, resolve the remaining plans and scan again. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
 
 Create a unique log directory for this cleanup. It is an intentional external exception because apply may remove the worktree and its Git directory. Read the logs and delete this directory after cleanup, including on failure or when cleanup is cancelled; retain it only when needed for diagnosis and report its path and reason.
 

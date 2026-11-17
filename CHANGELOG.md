@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Plan lifecycle: `create-pr` reconciles `.agent-plans/` into the PR body and follow-up issues and records it in a ledger (`scripts/plan-ledger.py record|status`); `cleanup-session` treats reconciled plans as disposable and asks only about unreconciled or modified ones.
+- `new-worktree-setup.sh --plan <abs path>` moves the session's plan-mode file into the new worktree's `.agent-plans/`, verified with `cmp`.
+
 ## [3.3.0] - 2026-11-17
 
 ### Changed

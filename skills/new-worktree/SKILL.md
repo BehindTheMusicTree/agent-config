@@ -9,12 +9,12 @@ Create a new git worktree with its own branch, then populate it with the same gi
 
 The branch name is: **user-provided arguments**
 
-If no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk.
+If no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk. When this session produced an approved plan outside the new worktree (plan mode writes to the session directory's `.agent-plans/`), pass its absolute path with `--plan`: the script moves it to `<worktree>/.agent-plans/<last branch segment>.md`, verifies the copy, deletes the source and removes the source `.agent-plans/` only when empty. Never pass a plan this session did not produce.
 
 ## Step 1 — Run the setup script
 
 ```bash
-"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" codex <branch-name> [<base-ref>]
+"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" [--plan <absolute-plan-path>] codex <branch-name> [<base-ref>]
 ```
 
 Allow enough time for the command to finish — the dependency install can exceed the 120s default, and output printed before an auto-move to the background is lost.
@@ -34,7 +34,8 @@ The script installs dependencies via the detected package manager, but can't kno
 Keep this terse, built from the script's `key=value` output:
 1. Worktree path and branch name
 2. Base ref it branched from
-3. Count of env files copied (or "no gitignored env files found")
-4. Port variables reassigned and their new values, plus any cross-file references rewritten (or "no port variables found"). If the script printed any `stale_ref=` lines, list each one and say the copied value points at a dead port that differs from `.env.example` — offer to fix it, don't rewrite it yourself
-5. Whether dependencies were installed (with which package manager, or venv) — if `install_status=fail`, show the tail of `install_log` — and whether any extra `CLAUDE.md`-documented setup steps were run
-6. If the script printed `dev_up_script=<path>` (not `none`), mention it as the next step to start dev servers, e.g. "To start dev servers: `<path>`" — don't run it yourself, this command only sets up the worktree. (Use `new-worktree-and-serve` instead when the user wants both done in one go.)
+3. Plan moved (`plan_copied=`, and whether the source was removed), if `--plan` was passed
+4. Count of env files copied (or "no gitignored env files found")
+5. Port variables reassigned and their new values, plus any cross-file references rewritten (or "no port variables found"). If the script printed any `stale_ref=` lines, list each one and say the copied value points at a dead port that differs from `.env.example` — offer to fix it, don't rewrite it yourself
+6. Whether dependencies were installed (with which package manager, or venv) — if `install_status=fail`, show the tail of `install_log` — and whether any extra `CLAUDE.md`-documented setup steps were run
+7. If the script printed `dev_up_script=<path>` (not `none`), mention it as the next step to start dev servers, e.g. "To start dev servers: `<path>`" — don't run it yourself, this command only sets up the worktree. (Use `new-worktree-and-serve` instead when the user wants both done in one go.)
