@@ -17,11 +17,14 @@ class PlanLedgerTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.git('init', '-q', '-b', 'main')
-        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
-                 'commit', '-q', '--allow-empty', '-m', 'initial')
         self.plans = self.root / '.agent-plans'
         self.plans.mkdir()
         (self.plans / '.gitignore').write_text('*\n!.gitignore\n')
+        # Committed like in real repos, so status stays clean without a global exclude (as on CI);
+        # -f because a local global exclude may ignore .agent-plans/ entirely.
+        self.git('add', '-f', '.agent-plans/.gitignore')
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                 'commit', '-q', '-m', 'initial')
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.root), *args], check=True, capture_output=True, text=True).stdout
@@ -64,7 +67,7 @@ class PlanLedgerTests(unittest.TestCase):
     def test_linked_worktrees_own_their_plans(self):
         linked = self.root / '.claude' / 'worktrees' / 'other'
         self.git('worktree', 'add', '-q', '-b', 'other', str(linked))
-        (linked / '.agent-plans').mkdir()
+        self.assertTrue((linked / '.agent-plans' / '.gitignore').is_file())
         (linked / '.agent-plans' / 'other.md').write_text('other session\n')
         self.assertEqual(plan_ledger.inventory(self.root), {})
 
