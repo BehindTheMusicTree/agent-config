@@ -216,7 +216,18 @@ fi
 echo "install_tool=$install_tool"
 echo "install_status=$install_status"
 echo "install_log=$install_log"
-echo "check_claude_md_setup=true"
+# Only point the agent at instruction files that document a setup section, so it skips a read otherwise.
+setup_docs=()
+for doc in CLAUDE.md AGENTS.md; do
+  if [[ -f "$wt_abs/$doc" ]] && grep -Eiq '^#{1,6}[[:space:]].*(setup|installation)' "$wt_abs/$doc"; then
+    setup_docs+=("$doc")
+  fi
+done
+if (( ${#setup_docs[@]} )); then
+  echo "setup_docs=$(IFS=,; echo "${setup_docs[*]}")"
+else
+  echo "setup_docs=none"
+fi
 
 # --- convention: repo-specific dev-server launcher, if the repo has one ---
 if [[ -f "$wt_abs/scripts/dev-up.sh" ]]; then

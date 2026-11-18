@@ -34,6 +34,25 @@ class WorktreePathsTests(unittest.TestCase):
             self.assertIn('status=blocked reason=worktree-path-exists', output)
             self.assertFalse((root / '.gitignore').exists())
 
+    def test_setup_docs_lists_only_files_with_setup_heading(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'repo'
+            root.mkdir()
+            run('git', 'init', '-q', '-b', 'main', cwd=root)
+            (root / 'CLAUDE.md').write_text('@AGENTS.md\n')
+            (root / 'AGENTS.md').write_text('# Repo\n\nRun setup later.\n')
+            run('git', 'add', '.', cwd=root)
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-q', '-m', 'initial', cwd=root)
+            script = str(SCRIPTS / 'new-worktree-setup.sh')
+            output = run(script, 'codex', 'feature/none', 'main', cwd=root)
+            self.assertIn('setup_docs=none', output)
+            (root / 'AGENTS.md').write_text('# Repo\n\n## Setup\n\n- `pre-commit install`\n')
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-q', '-am', 'setup', cwd=root)
+            output = run(script, 'codex', 'feature/some', 'main', cwd=root)
+            self.assertIn('setup_docs=AGENTS.md\n', output)
+
     def test_scratch_excluded_when_local_config_overrides_global(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'repo'
