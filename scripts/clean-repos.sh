@@ -93,6 +93,7 @@ done
 [[ "$stale_empty_days" =~ ^[0-9]+$ ]] || { echo "--stale-empty-days needs a non-negative integer: $stale_empty_days" >&2; exit 1; }
 [[ "$handoff_days" =~ ^[0-9]+$ ]] || { echo "--handoff-days needs a non-negative integer: $handoff_days" >&2; exit 1; }
 # A leading zero would make Bash arithmetic read the value as octal.
+stale_empty_days=$((10#$stale_empty_days))
 handoff_days=$((10#$handoff_days))
 
 contains() {

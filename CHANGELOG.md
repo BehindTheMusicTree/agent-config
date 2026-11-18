@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `clean-repos` / `cleanup-session`: `--stale-empty-days 08` (or `09`) no longer fails as an invalid octal number; the value is read as base 10.
+
 ## [3.4.0] - 2026-11-18
 
 ### Changed
