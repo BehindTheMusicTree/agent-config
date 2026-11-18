@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-11-18
+
 ### Added
 
 - `check-project-agents.py` verifies nested `AGENTS.md` / `CLAUDE.md` pairs and rejects client-specific instruction files (Copilot, Cursor, Windsurf, Cline, Gemini).
