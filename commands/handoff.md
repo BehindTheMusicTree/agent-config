@@ -28,7 +28,7 @@ git -C <resume directory> worktree list
 
 At most about 30 lines, self-contained, in the language of the user's latest message. The recap exists to let the next session continue: spend the lines on context and remaining work, not on history.
 
-Start with a header line: date, `<repo>`, branch and short HEAD SHA from Step 2, and the resume directory. Then these sections:
+Start with a header line: date, `<repo>`, branch and short HEAD SHA from Step 2, and the resume directory. Then, on the next line, the **Resume check**: if the working directory of the session reading the recap is not the resume directory, that session does nothing else and tells the user to restart with `/exit`, then `cd '<resume directory>' && claude`. Then these sections:
 
 - **Context**: concise — the goal in one line, then only the decisions, constraints and facts the next session needs to continue (for example a chosen approach, a rejected alternative, or a pending release confirmation). Preserve the user's task scope, granted authorization and pending confirmations, including any approved release's repositories, version, scope and publication/deployment effects. Do not turn this workflow's read-only restriction into a constraint on resumed work. Distinguish state ("not committed yet", "no PR yet") from an explicit prohibition; do not invent restrictions or discard existing authorization.
 - **Remaining**: the core of the recap — ordered, actionable next steps, each specific enough to execute without rereading this session (files, commands, PR numbers, open questions for the user).
