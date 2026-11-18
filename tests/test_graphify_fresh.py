@@ -49,12 +49,12 @@ class GraphifyFreshTests(unittest.TestCase):
         (repo / 'graphify-out').mkdir(exist_ok=True)
         (repo / 'graphify-out/graph.json').write_text('{}')
 
-    def run_hook(self, cwd, tool='Grep', path=None, args=(), session='s1'):
+    def run_hook(self, cwd, tool='Grep', path=None, args=(), session='s1', tool_input=None):
         env = {**os.environ, 'PATH': f'{self.bin}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin'}
         if path is not None:
             env['PATH'] = path
         payload = json.dumps({'cwd': str(cwd), 'tool_name': tool, 'session_id': session,
-                              'tool_input': {'pattern': 'x'}})
+                              'tool_input': tool_input or {'pattern': 'x'}})
         result = subprocess.run([str(SCRIPT), *args], input=payload, text=True, capture_output=True, env=env)
         self.assertEqual(result.returncode, 0)
         return result.stdout
@@ -237,6 +237,62 @@ class GraphifyFreshTests(unittest.TestCase):
         self.assertFalse((seeded / '2026-01-01').exists())
         self.assertTrue((seeded / '.fresh-key').exists())
         self.assertTrue(any(c.startswith(str(worktree)) and '|update .|' in c for c in self.calls_made()))
+
+    def linked_worktree(self):
+        self.graph(self.main)
+        (self.main / 'graphify-out/cache').mkdir()
+        (self.main / 'graphify-out/cache/c').write_text('c')
+        worktree = self.root / 'wt'
+        git(self.main, 'worktree', 'add', '-q', '-b', 'feat', str(worktree))
+        return worktree
+
+    def test_read_targets_the_repository_of_the_file_not_cwd(self):
+        worktree = self.linked_worktree()
+        other = self.root / 'other'
+        other.mkdir()
+        git(other, 'init', '-q', '-b', 'main')
+        (other / '.gitignore').write_text('graphify-out/\n')
+        git(other, 'add', '.')
+        git(other, 'commit', '-q', '-m', 'init')
+        out = self.run_hook(other, tool='Read', tool_input={'file_path': str(worktree / 'a.py')})
+        self.assertIn(str(worktree), self.context(out))
+        self.wait_for_idle(worktree)
+        self.assertTrue((worktree / 'graphify-out/cache/c').exists())
+        self.assertTrue((worktree / 'graphify-out/.fresh-key').exists())
+        self.assertFalse((other / 'graphify-out').exists())
+        self.assertTrue(all(c.startswith(str(worktree)) for c in self.calls_made()))
+
+    def test_grep_path_targets_its_repository_and_relative_paths_use_cwd(self):
+        worktree = self.linked_worktree()
+        self.run_hook(self.root, tool='Grep', tool_input={'pattern': 'x', 'path': str(worktree)})
+        self.wait_for_idle(worktree)
+        self.assertTrue((worktree / 'graphify-out/graph.json').exists())
+        self.assertIn(str(worktree), self.context(self.run_hook(
+            self.root, tool='Glob', session='s2', tool_input={'pattern': '*', 'path': 'wt'})))
+
+    def test_path_outside_any_git_repository_is_ignored_without_cwd_fallback(self):
+        self.graph(self.main)
+        outside = self.root / 'plain'
+        outside.mkdir()
+        (outside / 'f.txt').write_text('x')
+        out = self.run_hook(self.main, tool='Read', tool_input={'file_path': str(outside / 'f.txt')})
+        self.assertEqual(out, '')
+        self.assertEqual(self.calls_made(), [])
+
+    def test_seeding_runs_in_the_background_and_reports_building(self):
+        worktree = self.linked_worktree()
+        slow = self.root / 'slowbin'
+        slow.mkdir()
+        (slow / 'cp').write_text('#!/bin/sh\nsleep 1\nexec /bin/cp "$@"\n')
+        (slow / 'cp').chmod(0o755)
+        path = f'{slow}:{self.bin}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin'
+        started = time.time()
+        out = self.run_hook(worktree, path=path)
+        self.assertLess(time.time() - started, 1.0)
+        self.assertIn('rg/Read for now', self.context(out))
+        self.assertFalse((worktree / 'graphify-out/graph.json').exists())
+        self.wait_for_idle(worktree)
+        self.assertTrue((worktree / 'graphify-out/graph.json').exists())
 
 
 if __name__ == '__main__':

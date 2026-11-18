@@ -24,15 +24,28 @@ command -v graphify >/dev/null 2>&1 || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 parsed=$(printf '%s' "$input" | python3 -c '
-import json, sys
+import json, os, sys
 d = json.load(sys.stdin)
-print(d.get("cwd") or "")
-print(d.get("tool_name") or "")
+cwd = d.get("cwd") or ""
+tool = d.get("tool_name") or ""
+ti = d.get("tool_input") or {}
+# Read/Grep/Glob name their target in structured fields; Bash commands are not parsed.
+p = ti.get("file_path") if tool == "Read" else ti.get("path") if tool in ("Grep", "Glob") else None
+target = cwd
+if isinstance(p, str) and p:
+    p = p if os.path.isabs(p) else os.path.join(cwd, p)
+    target = p if os.path.isdir(p) else os.path.dirname(p)
+    while target and not os.path.isdir(target) and os.path.dirname(target) != target:
+        target = os.path.dirname(target)
+print(cwd)
+print(tool)
 print(d.get("session_id") or "")
+print(target)
 ' 2>/dev/null) || exit 0
 cwd=$(printf '%s\n' "$parsed" | sed -n 1p)
 tool=$(printf '%s\n' "$parsed" | sed -n 2p)
 session=$(printf '%s\n' "$parsed" | sed -n 3p)
+target=$(printf '%s\n' "$parsed" | sed -n 4p)
 [ -n "$cwd" ] || exit 0
 
 case "$tool" in
@@ -40,19 +53,15 @@ case "$tool" in
   *) exit 0 ;;
 esac
 
-top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null) || exit 0
+top=$(git -C "$target" rev-parse --show-toplevel 2>/dev/null) || exit 0
 main=$(git -C "$top" worktree list --porcelain | sed -n 's/^worktree //p' | sed -n 1p)
 # Opt-in: only repos that gitignore graphify-out/ (versioned signal; a graph is built if absent).
 git -C "$top" check-ignore -q graphify-out/graph.json || exit 0
 
 out="$top/graphify-out"
+seed_from=
 if [ "$top" != "$main" ] && [ ! -d "$out" ] && [ -f "$main/graphify-out/graph.json" ]; then
-  mkdir -p "$out"
-  src="$main/graphify-out"
-  for f in graph.json manifest.json GRAPH_REPORT.md .graphify_*; do
-    [ -e "$src/$f" ] && cp -R "$src/$f" "$out/"
-  done
-  [ -d "$src/cache" ] && cp -R "$src/cache" "$out/"
+  seed_from="$main/graphify-out"
 fi
 mkdir -p "$out"
 
@@ -61,15 +70,21 @@ diff_sum=$(git -C "$top" diff HEAD --no-ext-diff -- . ':!graphify-out' | shasum 
 untracked_sum=$(cd "$top" && git ls-files -o --exclude-standard | { grep -v '^graphify-out/' || true; } | tr '\n' '\0' | { xargs -0 shasum -a 256 2>/dev/null || true; } | shasum -a 256 | cut -d' ' -f1)
 key="$head_sha:$(printf '%s%s' "$diff_sum" "$untracked_sum" | shasum -a 256 | cut -d' ' -f1)"
 
-if [ "$(cat "$out/.fresh-key" 2>/dev/null)" != "$key" ]; then
+if [ -n "$seed_from" ] || [ "$(cat "$out/.fresh-key" 2>/dev/null)" != "$key" ]; then
   lock="$out/.refresh.lock"
   if [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
     rmdir "$lock" 2>/dev/null || true
   fi
-  if [ "$(cat "$out/.failed-key" 2>/dev/null)" != "$key" ] && mkdir "$lock" 2>/dev/null; then
+  if { [ -n "$seed_from" ] || [ "$(cat "$out/.failed-key" 2>/dev/null)" != "$key" ]; } && mkdir "$lock" 2>/dev/null; then
     (
       trap '' HUP
       cd "$top" || exit 0
+      if [ -n "$seed_from" ]; then
+        for f in graph.json manifest.json GRAPH_REPORT.md .graphify_*; do
+          [ -e "$seed_from/$f" ] && cp -R "$seed_from/$f" "$out/"
+        done
+        [ -d "$seed_from/cache" ] && cp -R "$seed_from/cache" "$out/"
+      fi
       if GRAPHIFY_NO_BACKUP=1 graphify update . >"$out/refresh.log" 2>&1; then
         printf '%s' "$key" >"$out/.fresh-key"
       else
@@ -93,12 +108,12 @@ marker="$session:$state"
 printf '%s' "$marker" >"$out/.notified-session"
 
 if [ "$state" = building ]; then
-  msg='graphify graph is being built for the first time; use rg/Read for now.'
+  msg="The repository at $top has its graphify graph built for the first time (or seeded from the main checkout) in the background; use rg/Read for now."
 else
-  msg=$(cat <<'EOF'
-This repository has a graphify knowledge graph in graphify-out/, refreshed in the background after edits. Use it for structure questions (modules, dependencies, how concepts connect): graphify query '<specific question>' --budget 800, graphify explain '<path>::<symbol>', graphify path '<A>' '<B>'. Use rg/Read for function bodies, exact call sites and line-level work: the graph is static and misses calls resolved at runtime. This note is shown once per session.
-EOF
-)
+  msg="The repository at $top has a graphify knowledge graph in graphify-out/, refreshed in the background after edits; run graphify from that directory. Use it for structure questions (modules, dependencies, how concepts connect): graphify query '<specific question>' --budget 800, graphify explain '<path>::<symbol>', graphify path '<A>' '<B>'. Use rg/Read for function bodies, exact call sites and line-level work: the graph is static and misses calls resolved at runtime. This note is shown once per session."
 fi
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"}}' "$msg"
+MSG="$msg" python3 -c '
+import json, os
+print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": os.environ["MSG"]}}), end="")
+'
 exit 0

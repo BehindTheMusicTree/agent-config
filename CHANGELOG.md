@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Handoff recaps start with a resume check that stops a session started outside the resume directory.
+- The graphify hook targets the repository of Read/Grep/Glob paths and seeds linked worktrees in the background.
+
 ## [3.6.0] - 2026-11-18
 
 ### Added
