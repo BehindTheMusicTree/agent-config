@@ -143,6 +143,10 @@ class CleanReposTests(unittest.TestCase):
         self.assertIn('worktrees-stale-empty', self.run_script('scan'))
         self.assertIn('worktrees-new-empty', self.run_script('scan', '--stale-empty-days', '5'))
 
+    def test_stale_empty_days_option_accepts_leading_zeros(self):
+        self.add_empty_worktree('feature/month', days_old=30)
+        self.assertIn('worktrees-stale-empty', self.run_script('scan', '--stale-empty-days', '08'))
+
     def test_stale_empty_worktree_with_only_ignored_files_is_removed(self):
         path = self.add_empty_worktree('feature/ignored', days_old=30)
         (self.repo / '.git' / 'info' / 'exclude').write_text('*.env\n')
