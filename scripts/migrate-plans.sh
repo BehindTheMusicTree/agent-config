@@ -19,7 +19,8 @@ while IFS= read -r -d '' plans; do
     || { echo "skip $plans: not in a git worktree" >&2; continue; }
   repo="$(basename "$(dirname "$common")")"
   branch="$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null)" \
-    || branch="detached-$(git -C "$wt" rev-parse --short HEAD)"
+    || branch="detached-$(git -C "$wt" rev-parse --short HEAD)" \
+      || { echo "skip $plans: no commit" >&2; continue; }
   dest="$common/agent-plans/$(key "$repo")-$(key "$branch")"
   dirs=$((dirs + 1))
   leftover=false

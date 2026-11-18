@@ -462,6 +462,12 @@ stale_handoffs() {
     $is_protected && continue
     $is_live && continue
     if $is_aged; then
+      # A directory's own mtime ignores in-place edits of the files inside.
+      if [[ -d "$file" ]]; then
+        [[ -z "$(find "$file" -mmin -"$((handoff_days * 1440))" -print -quit 2>/dev/null)" ]] \
+          && printf '%s\t%s\n' "$file" "older-than-${handoff_days}d"
+        continue
+      fi
       [[ -n "$(find "$file" -mmin +"$((handoff_days * 1440))" 2>/dev/null)" ]] \
         && printf '%s\t%s\n' "$file" "older-than-${handoff_days}d"
       continue
