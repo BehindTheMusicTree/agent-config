@@ -3,12 +3,54 @@
 import argparse
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 
-def check(root):
+FORBIDDEN_FILES = {'copilot-instructions.md', '.cursorrules', '.windsurfrules', '.clinerules', 'GEMINI.md'}
+FORBIDDEN_DIRS = (('.github', 'instructions'), ('.cursor', 'rules'), ('.windsurf', 'rules'))
+SKIPPED = {'.git', 'node_modules'}
+
+
+def project_files(root):
+    """Tracked files when root is a git repository, otherwise every file outside .git and node_modules."""
+    if (root / '.git').exists():
+        result = subprocess.run(['git', '-C', str(root), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+                                capture_output=True, text=True)
+        if result.returncode == 0:
+            return sorted(Path(name) for name in result.stdout.split('\0') if name and (root / name).exists())
+    return sorted(p.relative_to(root) for p in root.rglob('*')
+                  if not SKIPPED.intersection(p.relative_to(root).parts) and (p.is_file() or p.is_symlink()))
+
+
+def check_nested(root):
     errors = []
+    files = project_files(root)
+    for relative in files:
+        parent = relative.parent
+        if parent == Path('.'):
+            continue
+        if relative.name == 'CLAUDE.md':
+            claude, agents = root / relative, root / parent / 'AGENTS.md'
+            if claude.is_symlink() or claude.read_text().strip() != '@AGENTS.md':
+                errors.append(f'{relative}: CLAUDE.md must contain only @AGENTS.md')
+            if not agents.is_file() or agents.is_symlink():
+                errors.append(f'{parent / "AGENTS.md"}: AGENTS.md must be a regular file next to {relative}')
+        elif relative.name == 'AGENTS.md':
+            claude = root / parent / 'CLAUDE.md'
+            if not claude.is_file() or claude.is_symlink():
+                errors.append(f'{parent / "CLAUDE.md"}: CLAUDE.md must import {relative}')
+    for relative in files:
+        parts = relative.parts
+        if relative.name in FORBIDDEN_FILES or any(
+                parts[i:i + len(d)] == d and len(parts) > i + len(d) for d in FORBIDDEN_DIRS for i in range(len(parts))):
+            errors.append(f'{relative}: client-specific instruction files are forbidden; use AGENTS.md and .agents/')
+    return errors
+
+
+def check(root):
+    errors = check_nested(root)
     agents = root / 'AGENTS.md'
     claude = root / 'CLAUDE.md'
     if not agents.is_file() or agents.is_symlink():
