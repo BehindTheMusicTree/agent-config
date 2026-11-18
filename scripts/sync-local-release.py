@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize Codex skills, global instructions, the derived Codex compaction threshold and the Codex graphify hook from a local release tag."""
+"""Synchronize Codex skills, global instructions, the derived Codex compaction threshold, managed Claude permissions and the Codex graphify hook from a local release tag."""
 import argparse
 import importlib.util
 import os
@@ -22,6 +22,7 @@ skills = load('codex_skills', 'sync-codex-skills.py')
 instructions = load('global_instructions', 'install-instructions.py')
 plugins = load('claude_plugin', 'sync-claude-plugin.py')
 compact = load('compact_limit', 'sync-compact-limit.py')
+permissions = load('claude_permissions', 'sync-claude-permissions.py')
 codex_hooks = load('codex_hooks', 'sync-codex-hooks.py')
 
 
@@ -36,6 +37,7 @@ def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sourc
         changes.extend(instructions.prepare(home, instructions.render_sources(sources, agent)))
     if compact.claude_window(claude_home) is not None:
         changes.extend(compact.prepare(claude_home, codex_home, compact_root(sources)))
+    changes.extend(permissions.prepare(claude_home, list(sources.values())))
     changes.extend(codex_hooks.prepare(codex_home, hooks_root(sources)))
     changes.extend(instructions.prepare_git_ignore())
     if len({path for path, _, _ in changes}) != len(changes):
@@ -69,6 +71,7 @@ def synchronize_source(source, claude_home, codex_home, adopt_from=None):
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         changes.extend(instructions.prepare(home, instructions.render(source, agent)))
     changes.extend(compact.prepare(claude_home, codex_home, source))
+    changes.extend(permissions.prepare(claude_home, [source]))
     changes.extend(codex_hooks.prepare(codex_home, source))
     changes.extend(instructions.prepare_git_ignore())
     if len({path for path, _, _ in changes}) != len(changes):

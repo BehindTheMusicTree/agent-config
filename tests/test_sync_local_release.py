@@ -101,6 +101,23 @@ class LocalReleaseTests(unittest.TestCase):
         limit = 160000 - sync.compact.load_reserve()
         self.assertEqual((self.codex / 'config.toml').read_text(), f'model_auto_compact_token_limit = {limit}\nmodel = "x"\n')
 
+    def test_merges_managed_claude_permissions_and_rolls_them_back(self):
+        self.claude.mkdir()
+        (self.claude / 'settings.json').write_text('{"permissions": {"allow": ["Bash(ls:*)"]}}\n')
+        (self.repo / 'settings/permissions.json').write_text(json.dumps({'allow': ['Bash(ssh vps-read:*)']}))
+        self.git('add', '.')
+        self.git('commit', '-qm', 'permissions')
+        self.git('tag', '-f', 'v1.0.0')
+        before = (self.claude / 'settings.json').read_text()
+        self.plugin.side_effect = RuntimeError('installation failed')
+        with self.assertRaises(RuntimeError):
+            self.execute()
+        self.assertEqual((self.claude / 'settings.json').read_text(), before)
+        self.plugin.side_effect = None
+        self.execute()
+        allow = json.loads((self.claude / 'settings.json').read_text())['permissions']['allow']
+        self.assertEqual(sorted(allow), ['Bash(ls:*)', 'Bash(ssh vps-read:*)'])
+
     def test_registers_graphify_hook_for_codex_and_rolls_it_back(self):
         self.codex.mkdir()
         (self.codex / 'hooks.json').write_text('{"hooks": {"Stop": []}}\n')

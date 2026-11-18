@@ -88,6 +88,13 @@ if hooks_file.is_file():
             errors.append(f'{hooks_file}: hook path {target} is missing or outside the packaged plugin directories')
 if (root / 'instructions/workflows').exists():
     errors.append(f'{root / "instructions/workflows"}: workflow policies are no longer supported; merge them into the workflow sources')
+_spec = importlib.util.spec_from_file_location('claude_permissions', engine / 'scripts/sync-claude-permissions.py')
+permissions = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(permissions)
+try:
+    permissions.merge_fragments([root])
+except (OSError, ValueError) as exc:
+    errors.append(str(exc))
 if errors:
     raise SystemExit('\n'.join(errors))
 print('Manifests, commands, skills, and local references validated')
