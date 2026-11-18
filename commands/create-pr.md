@@ -44,16 +44,6 @@ Select and announce intent/depth with evidence from the hunks, using the shared 
 
 Check whether CI enforces tests (a required test job or coverage threshold). If nothing enforces it, ask whether to add a gate unless the session already resolves that decision. Refresh affected validation after a base merge.
 
-## Step 5a — Plan reconciliation
-
-The PR captures the task's plans; after merge the files in `.agent-plans/` have no value of their own. Read every plan in this worktree's `.agent-plans/` (nested ones included) and compare it with the final diff:
-- **Decisions** taken and alternatives rejected go into the body (Summary or Changes; without such sections, a `## Decisions` section).
-- **Out-of-scope items and known limitations** go into a `## Follow-ups` section, added after the template's sections when it has none. For each actionable item, draft an issue, show it to the user and create it with `gh issue create` only after approval; link it in Follow-ups. A declined issue is noted there without a link.
-- A Follow-up never closes a test or documentation gap of this PR itself (see the policy's `change` checks).
-- A plan unrelated to this diff (another task) is reported and left out of the ledger recorded in Step 10.
-
-With no plan, skip this step.
-
 ## Step 6 — Body
 
 Use the first template found, in this order:
@@ -114,13 +104,6 @@ gh pr create --base <base-branch> --title "<title>" --body-file <path> [--draft]
 
 Read the PR back and verify its head SHA matches the reviewed/pushed commit before reporting success. Do not create a duplicate or report a review of a different head.
 
-Then record the reconciled plans against the PR number (skip with no plan; pass each plan unrelated to this diff as `--exclude <worktree-relative path>`). Every later body update, such as in the `create-pr-and-fix-ci` loop, reconciles changed plans again and records again:
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/plan-ledger.py" record --pr <number> [--exclude <path>]...
-```
-
-The ledger lives at `git rev-parse --git-path plan-ledger.json`, next to the body: never in `git status`, deleted with the worktree. `cleanup-session` uses it to discard reconciled plans without asking.
-
 ## Step 11 — Auto-merge
 
 Apply the policy's **Auto-merge** section: unless the user opted out, enable auto-merge on the ready, non-draft PR for any intent, then read back `autoMergeRequest`. Never with `--admin`.
@@ -135,5 +118,4 @@ Don't print the body.
 5. Tests/docs added, if any
 6. **PR URL**
 7. Auto-merge: enabled (method) or skipped (reason)
-8. Plans reconciled and follow-up issues created or declined, if any
-9. Intent/depth, review findings, validation evidence reused/run, and remaining limitations
+8. Intent/depth, review findings, validation evidence reused/run, and remaining limitations

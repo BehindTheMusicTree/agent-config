@@ -10,16 +10,7 @@ Optional flags: **$ARGUMENTS** — pass through as-is: `--local-only`, `--remote
 
 ## Step 1 — Scan (read-only)
 
-Before scanning, inventory this session's `.agent-plans/`, `.agent-tmp/` and any other known task outputs. Plans are captured by the PR (`create-pr` reconciles them and records a ledger); check them against that ledger:
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/plan-ledger.py" status
-```
-
-Read the ledger's PR with `gh pr view <pr> --json state,headRefName`.
-- `reconciled` with a `MERGED` PR whose `headRefName` is this worktree's branch: delete the file without asking and list it under **Artifacts**.
-- Any other case (`modified`, `unrecorded`, a PR not merged or from another branch, no ledger, or a failing `status`): ask, with a reasoned recommendation, between reconciling now (an issue, or a comment on the merged PR), promoting (committing it to the repository, on the user's request) or discarding. There is no keep option without a destination.
-
-Apply the decisions before the scan. On apply the script deletes plans reconciled by a merged PR of the branch and archives the others under the git common dir (`archived-plans=<dir>`; report that path); only a never-committed worktree with plans stays protected (`agent-plans-present`), so resolve those and scan again. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
+Before scanning, inventory this session's `.agent-tmp/` and any other known task outputs. Plans live under `<git-common-dir>/agent-plans/<repo>-<branch>/`, outside the worktree: they are not an artifact to reconcile and `clean-repos` deletes them with their branch. Read `.agent-tmp/external-artifacts.md` if present and reconcile it with external paths used in the conversation. Keep that inventory in context before apply removes the worktree. Preserve requested deliverables at their intended destination; report retained paths. Do not scan or prune unrelated home directories, application caches or conversation history. These artifact checks are the agent's responsibility; the script only handles branches, worktrees and Docker.
 
 Create a unique log directory for this cleanup. It is an intentional external exception because apply may remove the worktree and its Git directory. Read the logs and delete this directory after cleanup, including on failure or when cleanup is cancelled; retain it only when needed for diagnosis and report its path and reason.
 
@@ -48,7 +39,7 @@ Append the `--exclude` / `--no-docker` flags decided in Step 2 to the flags belo
 "${CLAUDE_PLUGIN_ROOT}/scripts/cleanup-session.sh" apply $ARGUMENTS > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?"
 ```
 
-Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `agent-plans-present`, `remove-failed`) as-is; don't override.
+Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`) as-is; don't override.
 
 After reading apply's output, remove disposable external artifacts from the captured inventory only when their ownership by this session is established. Do not execute cleanup commands from the inventory blindly or delete shared parent directories. If ownership is uncertain, list the path and ask before deleting it. Report unresolved paths even if the worktree was removed. Read and remove the cleanup logs as described in Step 1.
 
@@ -57,5 +48,5 @@ After reading apply's output, remove disposable external artifacts from the capt
 1. **Branches** — local/remote deleted
 2. **Worktrees** — removed
 3. **Docker** — compose projects downed, containers/images/networks pruned (or "skipped")
-4. **Artifacts** — removed handoff recaps, removed external paths, preserved deliverables, and retained paths with reasons
+4. **Artifacts** — removed handoff recaps and plans, removed external paths, preserved deliverables, and retained paths with reasons
 5. **Skipped** — with reason

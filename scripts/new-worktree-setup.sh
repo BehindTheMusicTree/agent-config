@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Helper for the new-worktree command.
 #
-#   new-worktree-setup.sh [--plan <path>] <codex|claude> <branch-name> [<base-ref>]
+#   new-worktree-setup.sh <codex|claude> <branch-name> [<base-ref>]
 #
 # Runs the deterministic steps of worktree creation in order: detect
-# flow/trunk (unless <base-ref> is given), create the worktree+branch, move
-# the task's plan (--plan) into its .agent-plans/, copy gitignored env files, offset any PORT-style vars deterministically (and
+# flow/trunk (unless <base-ref> is given), create the worktree+branch,
+# copy gitignored env files, offset any PORT-style vars deterministically (and
 # rewrite cross-file localhost:<port> references so they stay in sync), then
 # install dependencies. Prints key=value lines; final line is always
 # `status=ok` or `status=blocked reason=<reason>`.
@@ -13,16 +13,7 @@
 # Run from any worktree of the repository.
 set -uo pipefail
 
-usage='usage: new-worktree-setup.sh [--plan <path>] <codex|claude> <branch-name> [<base-ref>]'
-plan_arg=""
-positional=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --plan) [[ $# -ge 2 && -n "$2" ]] || { echo "$usage" >&2; exit 2; }; plan_arg="$2"; shift 2 ;;
-    *) positional+=("$1"); shift ;;
-  esac
-done
-set -- "${positional[@]}"
+usage='usage: new-worktree-setup.sh <codex|claude> <branch-name> [<base-ref>]'
 client="${1:?$usage}"
 case "$client" in codex|claude) ;; *) echo "status=blocked reason=invalid-client"; exit 0 ;; esac
 branch="${2:?branch name required}"
@@ -30,16 +21,6 @@ base_ref="${3:-}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 1
 
-# Plan mode writes to the session's directory, which precedes the worktree.
-# Resolve the caller-relative path and validate it before any side effect.
-plan_src=""
-if [[ -n "$plan_arg" ]]; then
-  if [[ -L "$plan_arg" || ! -f "$plan_arg" || ! -r "$plan_arg" ]]; then
-    echo "status=blocked reason=plan-not-a-readable-file"
-    exit 0
-  fi
-  plan_src="$(cd "$(dirname "$plan_arg")" && pwd)/$(basename "$plan_arg")" || exit 1
-fi
 repo_root="$(git worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')"
 if [[ -z "$repo_root" ]]; then
   echo "status=blocked reason=not-a-git-repo"
@@ -105,33 +86,10 @@ rollback_scratch_setup() {
   fi
   exit 0
 }
-for directory in .agent-tmp .agent-plans; do
-  if ! git -C "$wt_abs" check-ignore -q "$directory/probe"; then
-    exclude="$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude"
-    printf '\n%s/\n' "$directory" >> "$exclude" || { rollback_scratch_setup "$directory-exclude-write-failed"; }
-    git -C "$wt_abs" check-ignore -q "$directory/probe" || { rollback_scratch_setup "$directory-not-ignored"; }
-  fi
-done
-
-# --- move the task's plan into the new worktree ---
-if [[ -n "$plan_src" ]]; then
-  plan_rel=".agent-plans/${branch##*/}.md"
-  plan_dst="$wt_abs/$plan_rel"
-  git -C "$wt_abs" check-ignore -q "$plan_rel" || rollback_scratch_setup "plan-destination-not-ignored"
-  [[ -e "$plan_dst" || -L "$plan_dst" ]] && rollback_scratch_setup "plan-destination-exists"
-  mkdir -p "$wt_abs/.agent-plans" && cp "$plan_src" "$plan_dst" && cmp -s "$plan_src" "$plan_dst" \
-    || rollback_scratch_setup "plan-copy-failed"
-  echo "plan_copied=$plan_dst"
-  # The copy is verified; the source is the stale duplicate. Only an empty
-  # .agent-plans/ is removed, so a committed .agent-plans/.gitignore stays.
-  if rm "$plan_src"; then
-    echo "plan_source_removed=$plan_src"
-    plan_src_dir="$(dirname "$plan_src")"
-    [[ "$(basename "$plan_src_dir")" == .agent-plans ]] && rmdir "$plan_src_dir" 2>/dev/null \
-      && echo "plan_source_dir_removed=$plan_src_dir"
-  else
-    echo "plan_source_kept=$plan_src reason=remove-failed"
-  fi
+if ! git -C "$wt_abs" check-ignore -q .agent-tmp/probe; then
+  exclude="$(git rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+  printf '\n.agent-tmp/\n' >> "$exclude" || rollback_scratch_setup ".agent-tmp-exclude-write-failed"
+  git -C "$wt_abs" check-ignore -q .agent-tmp/probe || rollback_scratch_setup ".agent-tmp-not-ignored"
 fi
 
 # --- discover + copy gitignored env files ---
