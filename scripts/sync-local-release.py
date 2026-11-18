@@ -37,8 +37,10 @@ def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sourc
         changes.extend(instructions.prepare(home, instructions.render_sources(sources, agent)))
     if compact.claude_window(claude_home) is not None:
         changes.extend(compact.prepare(claude_home, codex_home, compact_root(sources)))
+    # Always prepared, so malformed settings fail before any side effect; applied later when excluded here.
+    permission_changes = permissions.prepare(claude_home, list(sources.values()))
     if include_permissions:
-        changes.extend(permissions.prepare(claude_home, list(sources.values())))
+        changes.extend(permission_changes)
     changes.extend(codex_hooks.prepare(codex_home, hooks_root(sources)))
     changes.extend(instructions.prepare_git_ignore())
     if len({path for path, _, _ in changes}) != len(changes):

@@ -129,6 +129,16 @@ class LocalReleaseTests(unittest.TestCase):
         self.assertEqual(sorted(allow), ['Bash(ls:*)', 'Bash(ssh vps-read:*)'])
         self.assertEqual(sync.plan_sources({'public': self.repo}, self.claude, self.codex)[2], [])
 
+    def test_malformed_claude_settings_fail_before_the_plugin_install(self):
+        self.claude.mkdir()
+        (self.claude / 'settings.json').write_text('{"permissions": []}')
+        (self.repo / 'settings/permissions.json').write_text(json.dumps({'allow': ['Bash(a)']}))
+        with patch.object(sync.plugins, 'prepare_sources', return_value={}), patch.object(
+                sync.plugins, 'install_sources') as install:
+            with self.assertRaisesRegex(ValueError, 'must be an object'):
+                sync.synchronize_sources({'public': self.repo}, self.claude, self.codex, self.base / 'marketplaces')
+        install.assert_not_called()
+
     def test_registers_graphify_hook_for_codex_and_rolls_it_back(self):
         self.codex.mkdir()
         (self.codex / 'hooks.json').write_text('{"hooks": {"Stop": []}}\n')
