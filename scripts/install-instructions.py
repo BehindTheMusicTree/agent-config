@@ -157,10 +157,10 @@ def prepare_git_ignore():
     before = snapshot(path)
     current = before['text'] if before else ''
     rules = [line for line in current.splitlines() if line and not line.startswith('#')]
-    managed = ('.agent-tmp/', '.agent-plans/')
-    if len(rules) >= 2 and set(rules[-2:]) == set(managed):
+    managed = '.agent-tmp/'
+    if rules and rules[-1] == managed:
         return []
-    missing = managed
+    missing = (managed,)
     separator = '\n' if current and not current.endswith('\n') else ''
     after = {'text': current + separator + ''.join(rule + '\n' for rule in missing), 'mode': before['mode'] if before else 0o600}
     return [(path, before, after)]

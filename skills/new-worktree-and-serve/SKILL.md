@@ -9,7 +9,7 @@ Same as `new-worktree`, plus starting dev servers in the new worktree — for wh
 
 The branch name is: **user-provided arguments**
 
-If no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk. When this session produced an approved plan outside the new worktree (plan mode writes to the session directory's `.agent-plans/`), pass its absolute path with `--plan`: the script moves it to `<worktree>/.agent-plans/<last branch segment>.md`, verifies the copy, deletes the source and removes the source `.agent-plans/` only when empty. Never pass a plan this session did not produce.
+If no branch name was given, infer a concise name from the task using a prefix authorized by the repository’s documented or established branch conventions. If the task or an authorized prefix cannot be inferred, ask the user for a branch name before proceeding. Optionally the user may also specify a base ref (e.g. "off develop") — if so, pass it as a second argument below; otherwise let the script auto-detect the trunk.
 
 ## Step 1 — Run the setup script
 

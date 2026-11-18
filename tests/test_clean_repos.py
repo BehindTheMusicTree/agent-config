@@ -62,10 +62,10 @@ class CleanReposTests(unittest.TestCase):
         git(base, 'init', '-q', '--bare', '-b', 'main', str(self.origin))
         git(base, 'clone', '-q', str(self.origin), str(self.repo))
         git(self.repo, 'checkout', '-q', '-b', 'main')
-        # The installer's global exclude hides plan dirs locally but not in CI; mirror it.
+        # The installer's global exclude hides scratch dirs locally but not in CI; mirror it.
         exclude = self.repo / '.git' / 'info' / 'exclude'
         exclude.parent.mkdir(exist_ok=True)
-        exclude.write_text('.agent-plans/\n.agent-tmp/\n')
+        exclude.write_text('.agent-tmp/\n')
         (self.repo / 'README.md').write_text('hello\n')
         git(self.repo, 'add', '.')
         git(self.repo, 'commit', '-q', '-m', 'initial')
@@ -260,59 +260,6 @@ class CleanReposTests(unittest.TestCase):
         self.assertTrue(path.exists())
         self.assertIn('feature/d', git(self.repo, 'branch', '--list', 'feature/d'))
 
-    def add_plan(self, path, name='topic.md', nested=False):
-        plans = path / ('nested' if nested else '') / '.agent-plans'
-        plans.mkdir(parents=True, exist_ok=True)
-        (plans / name).write_text('plan\n')
-        return plans / name
-
-    def test_unreconciled_plan_is_archived_then_worktree_removed(self):
-        path = self.add_worktree('feature/plans', merged=True)
-        plan = self.add_plan(path, 'regional.md')
-        scan = self.run_script('scan')
-        self.assertIn('worktree-plans', scan)
-        self.assertIn('plans=1: regional.md', scan)
-        output = self.run_script('apply')
-        archive = self.repo / '.git' / 'agent-plans-archive' / 'repo-feature-plans'
-        self.assertIn(f'archived-plans={archive}', output)
-        self.assertIn(f'removed-worktree={path}', output)
-        self.assertEqual((archive / '.agent-plans' / 'regional.md').read_text(), 'plan\n')
-        self.assertFalse(path.exists())
-        self.assertFalse(plan.exists())
-
-    def test_nested_plan_is_archived(self):
-        path = self.add_worktree('feature/nested-plans', merged=True)
-        self.add_plan(path, nested=True)
-        output = self.run_script('apply')
-        self.assertIn('archived-plans=', output)
-        self.assertIn(f'removed-worktree={path}', output)
-        archive = self.repo / '.git' / 'agent-plans-archive' / 'repo-feature-nested-plans'
-        self.assertTrue((archive / 'nested' / '.agent-plans' / 'topic.md').exists())
-
-    def test_reconciled_plan_of_a_merged_pr_is_deleted_with_the_worktree(self):
-        path = self.add_worktree('feature/rec', merged=True)
-        self.add_plan(path)
-        subprocess.run([shutil.which('python3'), str(SCRIPT.parent / 'plan-ledger.py'), '--repo', str(path),
-                        'record', '--pr', '9'], check=True, capture_output=True)
-        output = self.run_script('apply', GH_PR_VIEW='{"state":"MERGED","headRefName":"feature/rec"}')
-        self.assertNotIn('archived-plans=/', output)
-        self.assertIn(f'removed-worktree={path}', output)
-        self.assertFalse((self.repo / '.git' / 'agent-plans-archive').exists())
-
-    def test_plan_directory_symlink_is_kept_as_uncommitted(self):
-        path = self.add_worktree('feature/symlink', merged=True)
-        (path / '.agent-plans').symlink_to(path / 'missing', target_is_directory=True)
-        self.assertIn('reason=uncommitted-changes', self.run_script('apply'))
-        self.assertTrue(path.exists())
-
-    def test_never_committed_worktree_with_plans_stays_protected(self):
-        path = self.add_empty_worktree('feature/fresh-plan', days_old=30)
-        plan = self.add_plan(path)
-        output = self.run_script('apply')
-        self.assertIn('reason=agent-plans-present', output)
-        self.assertTrue(plan.exists())
-        self.assertTrue(self.branch_exists('feature/fresh-plan'))
-
     def add_cherry_picked(self, branch='feature/c'):
         path = self.add_worktree(branch, merged=False)
         self.commit_on_main('trunk moves on', 'moved.txt')
@@ -363,13 +310,6 @@ class CleanReposTests(unittest.TestCase):
         self.run_script('apply', '--remove-equivalent')
         self.assert_worktree_kept(path, 'feature/c')
         self.assertIsNone(proc.poll())
-
-    def test_equivalent_worktree_plans_are_archived(self):
-        path = self.add_cherry_picked()
-        self.add_plan(path)
-        output = self.run_script('apply', '--remove-equivalent')
-        self.assertIn('archived-plans=', output)
-        self.assertFalse(path.exists())
 
     def test_equivalent_detached_head_is_removed_with_the_flag(self):
         path = self.repo / '.claude' / 'worktrees' / 'detached'
@@ -549,16 +489,12 @@ class CleanReposTests(unittest.TestCase):
         output = self.run_script('apply', '--exclude', 'repo/.claude/worktrees/feature-a', GH_OPEN_BRANCHES='')
         self.assertIn(f'removed-worktree={path}', output)
 
-    def test_unmerged_worktree_reports_dirty_state_and_plans(self):
+    def test_unmerged_worktree_reports_dirty_state(self):
         path = self.add_worktree('feature/dp', merged=False)
         (path / 'scratch.txt').write_text('s\n')
-        plans = path / '.agent-plans'
-        plans.mkdir()
-        (plans / 'plan.md').write_text('plan\n')
         scan = self.run_script('scan')
         self.assertIn('unmerged-worktree', scan)
         self.assertIn('scratch.txt', scan)
-        self.assertIn('plans=1: plan.md', scan)
 
     def test_repo_with_only_unmerged_worktree_is_not_clean(self):
         self.add_worktree('feature/only', merged=False)
@@ -577,13 +513,40 @@ class CleanReposTests(unittest.TestCase):
         self.add_worktree('feature/a', merged=True)
         recap = self.handoff('repo-feature-a')
         scan = self.run_script('scan', GH_OPEN_BRANCHES='')
-        self.assertIn(f'stale-handoff (recap of a gone branch', scan)
+        self.assertIn(f'stale-handoff (recap or plans of a gone branch', scan)
         self.assertIn(f'{recap} [branch-deleted-on-apply]', scan)
         output = self.run_script('apply', GH_OPEN_BRANCHES='')
         self.assertIn('deleted-local=feature/a', output)
         self.assertIn(f'deleted-handoff={recap} reason=branch-gone', output)
         self.assertIn('deleted-handoffs=1', output)
         self.assertFalse(recap.exists())
+
+    def plans(self, name):
+        path = self.repo / '.git' / 'agent-plans' / name
+        (path / 'nested').mkdir(parents=True)
+        (path / 'nested' / 'topic.md').write_text('plan\n')
+        return path
+
+    def test_plans_of_a_merged_branch_are_removed_with_its_branch(self):
+        path = self.add_worktree('feature/a', merged=True)
+        plans = self.plans('repo-feature-a')
+        self.assertIn(f'{plans} [branch-deleted-on-apply]', self.run_script('scan', GH_OPEN_BRANCHES=''))
+        output = self.run_script('apply', GH_OPEN_BRANCHES='')
+        self.assertIn(f'removed-worktree={path}', output)
+        self.assertIn(f'deleted-handoff={plans} reason=branch-gone', output)
+        self.assertFalse(plans.exists())
+
+    def test_plans_of_live_or_excluded_branches_are_kept(self):
+        self.add_worktree('feature/wip', merged=False)
+        live = self.plans('repo-feature-wip')
+        orphan = self.plans('repo-feature-gone')
+        self.run_script('apply', '--exclude', str(orphan))
+        self.assertTrue(live.exists())
+        self.assertTrue(orphan.exists())
+        self.run_script('apply', '--keep-handoffs')
+        self.assertTrue(orphan.exists())
+        self.run_script('apply')
+        self.assertFalse(orphan.exists())
 
     def test_handoff_of_a_live_branch_is_kept(self):
         self.add_worktree('feature/wip', merged=False)

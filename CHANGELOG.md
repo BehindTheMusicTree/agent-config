@@ -5,11 +5,15 @@
 ### Added
 
 - `clean-repos` / `cleanup-session`: `apply --remove-equivalent` removes clean, idle worktrees (branch or detached HEAD, no open PR) whose content is proven on trunk (`worktree-equivalent`, `reason=content-on-trunk`); without the flag they are kept (`equivalent-not-enabled`).
-- `scripts/plan-ledger.py archive` moves plans a merged PR did not reconcile to `<git-common-dir>/agent-plans-archive/`; `apply` reports it as `archived-plans=`.
+- `scripts/migrate-plans.sh [--apply] <root>` moves legacy `.agent-plans/` contents into the central plan directories (dry run by default, never overwrites).
 
 ### Changed
 
-- Plans no longer block removal of merged or equivalent worktrees: reconciled plans go with the worktree, the others are archived first. Only never-committed worktrees with plans stay protected (`agent-plans-present`).
+- Plans are centralized in `<git-common-dir>/agent-plans/<repo>-<branch>/` (same key as handoffs) instead of `.agent-plans/` in each worktree; `clean-repos` removes `agent-plans/<key>` together with its branch (`stale-handoff`).
+
+### Removed
+
+- `.agent-plans/` mechanics: `scripts/plan-ledger.py` and the `create-pr` plan reconciliation, `scripts/sync-plan-directory.py` and the `plansDirectory` setting, `new-worktree-setup.sh --plan`, the `agent-plans-present` / `archived-plans` clean-repos outputs, and `.agent-plans` from the global Git exclusion (`.agent-tmp/` is unchanged).
 
 ### Fixed
 

@@ -39,11 +39,10 @@
 # A detached HEAD has no branch: protect it with its absolute path or with its
 # commit SHA (4 or more hex digits, full or abbreviated) via --exclude.
 #
-# Plans (.agent-plans/) never block a merged or equivalent worktree. Plans the
-# ledger shows as reconciled by a merged PR from the same branch go with the
-# worktree; any other plan is moved to <git-common-dir>/agent-plans-archive/
-# first (see plan-ledger.py archive) and reported. Never-committed worktrees
-# that hold plans are still left alone: the plan is why they exist.
+# Plans live in <git-common-dir>/agent-plans/<repo>-<branch>/ next to the
+# handoff recaps and follow the same lifecycle: the directory goes when its
+# branch is gone (--exclude and --keep-handoffs protect it as they do a recap).
+# Nothing about plans blocks or delays a worktree removal.
 #
 # git-root defaults to ~/git.
 set -euo pipefail
@@ -67,7 +66,6 @@ stale_empty_days=1
 handoff_days=7
 keep_handoffs=false
 remove_equivalent=false
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # Physical path when it exists (git and the user may spell symlinked parents
 # differently, e.g. /var vs /private/var), without trailing slashes.
@@ -262,58 +260,6 @@ worktree_pids() {
     }'
 }
 
-# Ignored plans survive cleanup until the user decides where they belong.
-worktree_has_plans() {
-  local directory contents directories
-  directories="$(find "$1" -name .git -prune -o -name .agent-plans -print)" || return 0
-  while IFS= read -r directory; do
-    [[ -n "$directory" ]] || continue
-    [[ -L "$directory" ]] && return 0
-    [[ -d "$directory" && -r "$directory" && -x "$directory" ]] || return 0
-    contents="$(find "$directory" -mindepth 1 ! -path "$directory/.gitignore" -print -quit)" || return 0
-    [[ -n "$contents" ]] && return 0
-  done <<< "$directories"
-  return 1
-}
-
-worktree_plan_summary() {
-  local directory="$1/.agent-plans" entry count=0 listed="" quoted
-  if [[ -L "$directory" || ! -d "$directory" || ! -r "$directory" || ! -x "$directory" ]]; then
-    echo 'plans=present (cannot inventory)'
-    return
-  fi
-  while IFS= read -r -d '' entry; do
-    count=$((count + 1))
-    if [[ $count -le 5 ]]; then
-      printf -v quoted '%q' "${entry#"$directory/"}"
-      listed+="${listed:+, }$quoted"
-    fi
-  done < <(find "$directory" -mindepth 1 ! -path "$directory/.gitignore" -print0)
-  [[ $count -gt 5 ]] && listed+=" (+$((count - 5)) more)"
-  if [[ $count -eq 0 ]]; then
-    echo 'plans=present (nested directory)'
-  else
-    echo "plans=$count: $listed"
-  fi
-}
-
-# Moves the plans of a worktree about to be removed out of it, keeping every
-# plan a merged PR of this branch did not reconcile (plan-ledger.py archive).
-# Prints the archive directory when something was archived. Any failure keeps
-# the worktree: a plan is never lost for a removal.
-worktree_archive_plans() {
-  local path="$1" br="$2" common label dest out
-  worktree_has_plans "$path" || return 0
-  command -v python3 >/dev/null 2>&1 || return 1
-  common="$(git -C "$path" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
-  label="$(handoff_key "${br:-detached-$(git -C "$path" rev-parse --short HEAD 2>/dev/null)}")"
-  dest="$common/agent-plans-archive/$(handoff_key "$name")-$label"
-  [[ ! -e "$dest" ]] || dest+="-$(date +%Y%m%d%H%M%S)"
-  out="$(python3 "$script_dir/plan-ledger.py" --repo "$path" archive --dest "$dest" --branch "$br" 2>/dev/null)" || return 1
-  [[ -d "$dest" ]] && printf '%s\n' "$dest"
-  return 0
-}
-
 worktree_branch_proven_on_trunk() {
   branch_fully_cherry_merged "refs/heads/$1" || branch_adds_nothing_to_trunk "refs/heads/$1"
 }
@@ -366,9 +312,6 @@ worktree_dirty_summary() {
   if [[ $untracked -gt 0 ]]; then
     summary+=": $listed"
     [[ $untracked -gt $shown ]] && summary+=" (+$((untracked - shown)) more)"
-  fi
-  if worktree_has_plans "$path"; then
-    summary+=" $(worktree_plan_summary "$path")"
   fi
   echo "$summary"
 }
@@ -457,7 +400,8 @@ handoff_key() { printf '%s' "$1" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | tr -s '-'
 # The handoff workflow writes one recap per branch to the common git dir as
 # agent-handoff-<repo>-<branch>.md (earlier versions: agent-handoff-<branch>.md),
 # with both names reduced to [A-Za-z0-9._-]. A recap only serves resuming its
-# branch, so it is obsolete once the branch is gone. Trunk and detached-HEAD
+# branch, so it is obsolete once the branch is gone. Plan directories
+# (agent-plans/<repo>-<branch>/) follow the same rules. Trunk and detached-HEAD
 # recaps have no branch lifecycle to follow, so age bounds them instead.
 # Arguments: branches apply is about to delete, treated as gone (scan's
 # prediction). Prints "<path>\t<reason>" per recap to remove.
@@ -483,8 +427,12 @@ stale_handoffs() {
   for b in "$trunk" main master develop; do trunks["$(handoff_key "$b")"]=1; done
   while IFS= read -r -d '' file; do
     path_excluded "$file" && continue
-    stem="${file##*/agent-handoff-}"
-    stem="$(handoff_key "${stem%.md}")"
+    if [[ -d "$file" ]]; then
+      stem="$(handoff_key "${file##*/}")"
+    else
+      stem="${file##*/agent-handoff-}"
+      stem="$(handoff_key "${stem%.md}")"
+    fi
     [[ -n "$stem" ]] || continue
     # The repo prefix is the directory name when the recap was written; a
     # renamed or symlinked repo leaves another prefix, and legacy names have
@@ -523,11 +471,12 @@ stale_handoffs() {
     else
       printf '%s\t%s\n' "$file" branch-gone
     fi
-  done < <(find "$common" -maxdepth 1 -type f -name 'agent-handoff-*.md' -print0 2>/dev/null | sort -z)
+  done < <({ find "$common" -maxdepth 1 -type f -name 'agent-handoff-*.md' -print0 2>/dev/null
+             find "$common/agent-plans" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null; } | sort -z)
 }
 
 scanned=0; with_candidates=0; clean=0; errors=0; unmerged_total=0; kept_unmerged=0
-deleted_local=0; deleted_remote=0; removed_worktrees=0; skipped=0; deleted_handoffs=0; archived_plans=0
+deleted_local=0; deleted_remote=0; removed_worktrees=0; skipped=0; deleted_handoffs=0
 
 for repo in "$git_root"/*/; do
   repo="${repo%/}"
@@ -763,12 +712,6 @@ for repo in "$git_root"/*/; do
       dirty_details+=("$(worktree_dirty_summary "$path")")
       dirty_reasons+=(uncommitted-changes)
       protected_branches+=("$br")
-    elif worktree_branch_is_new_empty "$br" && worktree_has_plans "$path"; then
-      # The plan is why a never-committed worktree exists; only merged work gives plans a destination.
-      dirty_worktrees+=("$path:$br")
-      dirty_details+=("$(worktree_dirty_summary "$path")")
-      dirty_reasons+=(agent-plans-present)
-      protected_branches+=("$br")
     elif worktree_branch_is_new_empty "$br"; then
       if worktree_is_stale_empty "$br" "$path"; then
         stale_empty_worktrees+=("$path:$br")
@@ -883,11 +826,7 @@ for repo in "$git_root"/*/; do
       [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%%:*}: $pids"
     done
     for i in "${!dirty_worktrees[@]}"; do
-      echo "  dirty-worktree (changes or plans, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
-    done
-    for i in "${!worktree_removals[@]}"; do
-      wt="${worktree_removals[$i]}"
-      worktree_has_plans "${wt%%:*}" && echo "  worktree-plans (reconciled plans go with the worktree, others are archived under the git dir on apply): ${wt%%:*} [$(worktree_plan_summary "${wt%%:*}")]"
+      echo "  dirty-worktree (uncommitted changes, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
     done
     for i in "${!equivalent_worktrees[@]}"; do
       echo "  worktree-equivalent (content on trunk, removable with --remove-equivalent): ${equivalent_worktrees[$i]} [${equivalent_details[$i]}]"
@@ -895,17 +834,11 @@ for repo in "$git_root"/*/; do
     for i in "${!unmerged_worktrees[@]}"; do
       echo "  unmerged-worktree (not proven merged, never removed): ${unmerged_worktrees[$i]} [${unmerged_details[$i]}]"
     done
-    archive_root="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/agent-plans-archive"
-    if [[ -d "$archive_root" ]]; then
-      while IFS= read -r -d '' f; do
-        echo "  plan-archive (archived plans, kept, review and delete by hand): $f"
-      done < <(find "$archive_root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
-    fi
     $remote_skipped_unknown && echo "  open-prs-unknown (gh pr list failed, remote deletion skipped for this repo)"
     [[ ${#new_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-new-empty (branch created but never committed to, branch kept, not touched): ${new_empty_worktrees[*]}"
     [[ ${#stale_empty_worktrees[@]} -gt 0 ]] && echo "  worktrees-stale-empty (never committed to, branch older than ${stale_empty_days}d, clean and idle: worktree and branch removed on apply): ${stale_empty_worktrees[*]}"
     for i in "${!handoff_removals[@]}"; do
-      echo "  stale-handoff (recap of a gone branch, or trunk/detached recap older than ${handoff_days}d: removed on apply): ${handoff_removals[$i]} [${handoff_reasons[$i]}]"
+      echo "  stale-handoff (recap or plans of a gone branch, or trunk/detached ones older than ${handoff_days}d: removed on apply): ${handoff_removals[$i]} [${handoff_reasons[$i]}]"
     done
   else
     for wt in "${stale_empty_worktrees[@]}"; do
@@ -913,7 +846,7 @@ for repo in "$git_root"/*/; do
       br="${wt#*:}"
       # Re-check right before acting: the worktree may have been picked up
       # since the scan. Never kill anything here; an in-use one is skipped.
-      if worktree_has_plans "$path" || [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]] \
+      if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]] \
          || ! worktree_branch_is_new_empty "$br" || ! worktree_is_stale_empty "$br" "$path"; then
         echo "repo=$name skip-worktree=$path branch=$br reason=stale-empty-changed"
         skipped=$((skipped + 1))
@@ -946,15 +879,6 @@ for repo in "$git_root"/*/; do
         [[ -n "${pids// /}" ]] && kill -9 $pids 2>/dev/null || true
         echo "repo=$name killed-processes=$path"
       fi
-      if ! archived="$(worktree_archive_plans "$path" "${wt#*:}")"; then
-        echo "repo=$name skip-worktree=$path reason=plan-archive-failed"
-        skipped=$((skipped + 1))
-        continue
-      fi
-      if [[ -n "$archived" ]]; then
-        echo "repo=$name archived-plans=$archived"
-        archived_plans=$((archived_plans + 1))
-      fi
       if git worktree remove "$path" 2>/dev/null; then
         echo "repo=$name removed-worktree=$path"
         removed_worktrees=$((removed_worktrees + 1))
@@ -977,15 +901,6 @@ for repo in "$git_root"/*/; do
         echo "repo=$name skip-worktree=$path branch=${ew#*:} reason=equivalent-changed"
         skipped=$((skipped + 1))
         continue
-      fi
-      if ! archived="$(worktree_archive_plans "$path" "$br")"; then
-        echo "repo=$name skip-worktree=$path reason=plan-archive-failed"
-        skipped=$((skipped + 1))
-        continue
-      fi
-      if [[ -n "$archived" ]]; then
-        echo "repo=$name archived-plans=$archived"
-        archived_plans=$((archived_plans + 1))
       fi
       if ! git worktree remove "$path" 2>/dev/null; then
         echo "repo=$name skip-worktree=$path reason=remove-failed"
@@ -1073,7 +988,7 @@ for repo in "$git_root"/*/; do
     done
     if ! $keep_handoffs && ! $remote_only; then
       while IFS=$'\t' read -r f r; do
-        if rm -f -- "$f" 2>/dev/null; then
+        if { if [[ -d "$f" ]]; then rm -rf -- "$f"; else rm -f -- "$f"; fi; } 2>/dev/null; then
           echo "repo=$name deleted-handoff=$f reason=$r"
           deleted_handoffs=$((deleted_handoffs + 1))
         else
@@ -1088,5 +1003,5 @@ done
 if [[ "$mode" == "scan" ]]; then
   echo "summary: scanned=$scanned with-candidates=$with_candidates clean=$clean errors=$errors unmerged-worktrees=$unmerged_total"
 else
-  echo "summary: deleted-local=$deleted_local deleted-remote=$deleted_remote removed-worktrees=$removed_worktrees skipped=$skipped kept-unmerged=$kept_unmerged deleted-handoffs=$deleted_handoffs archived-plans=$archived_plans"
+  echo "summary: deleted-local=$deleted_local deleted-remote=$deleted_remote removed-worktrees=$removed_worktrees skipped=$skipped kept-unmerged=$kept_unmerged deleted-handoffs=$deleted_handoffs"
 fi
