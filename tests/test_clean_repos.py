@@ -62,6 +62,10 @@ class CleanReposTests(unittest.TestCase):
         git(base, 'init', '-q', '--bare', '-b', 'main', str(self.origin))
         git(base, 'clone', '-q', str(self.origin), str(self.repo))
         git(self.repo, 'checkout', '-q', '-b', 'main')
+        # The installer's global exclude hides plan dirs locally but not in CI; mirror it.
+        exclude = self.repo / '.git' / 'info' / 'exclude'
+        exclude.parent.mkdir(exist_ok=True)
+        exclude.write_text('.agent-plans/\n.agent-tmp/\n')
         (self.repo / 'README.md').write_text('hello\n')
         git(self.repo, 'add', '.')
         git(self.repo, 'commit', '-q', '-m', 'initial')
