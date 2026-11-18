@@ -106,18 +106,21 @@ def prepare(claude_home, roots):
     permissions = settings.get('permissions', {})
     if not isinstance(permissions, dict):
         raise ValueError(f'{settings_path}: "permissions" must be an object')
+    managed = {}
     for key in LISTS:
         current = permissions.get(key, [])
         if not isinstance(current, list) or not all(isinstance(r, str) for r in current):
             raise ValueError(f'{settings_path}: permissions.{key} must be a list of strings')
         kept = [r for r in current if r not in retire and (r not in previous[key] or r in desired[key])]
         merged = kept + [r for r in desired[key] if r not in kept]
+        # Own only rules this tool added or already managed: a rule the user held first stays theirs.
+        managed[key] = [r for r in desired[key] if r in previous[key] or r not in current]
         if merged != current:
             permissions[key] = merged
         elif key in permissions:
             permissions[key] = current
     new_settings = {**settings, 'permissions': permissions} if permissions else settings
-    new_state = {'version': 1, **desired}
+    new_state = {'version': 1, **managed}
     changes = []
     before_settings = snapshot(settings_path)
     if before_settings is None or json.loads(before_settings['text']) != new_settings:

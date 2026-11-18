@@ -26,7 +26,7 @@ permissions = load('claude_permissions', 'sync-claude-permissions.py')
 codex_hooks = load('codex_hooks', 'sync-codex-hooks.py')
 
 
-def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sources=()):
+def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sources=(), include_permissions=True):
     destination = codex_home / 'skills'
     desired, link_changes = skills.plan_sources(sources, destination, adopt_from, remove_sources=remove_sources)
     override = codex_home / 'AGENTS.override.md'
@@ -37,7 +37,8 @@ def plan_sources(sources, claude_home, codex_home, adopt_from=None, remove_sourc
         changes.extend(instructions.prepare(home, instructions.render_sources(sources, agent)))
     if compact.claude_window(claude_home) is not None:
         changes.extend(compact.prepare(claude_home, codex_home, compact_root(sources)))
-    changes.extend(permissions.prepare(claude_home, list(sources.values())))
+    if include_permissions:
+        changes.extend(permissions.prepare(claude_home, list(sources.values())))
     changes.extend(codex_hooks.prepare(codex_home, hooks_root(sources)))
     changes.extend(instructions.prepare_git_ignore())
     if len({path for path, _, _ in changes}) != len(changes):
@@ -71,7 +72,6 @@ def synchronize_source(source, claude_home, codex_home, adopt_from=None):
     for agent, home in (('claude', claude_home), ('codex', codex_home)):
         changes.extend(instructions.prepare(home, instructions.render(source, agent)))
     changes.extend(compact.prepare(claude_home, codex_home, source))
-    changes.extend(permissions.prepare(claude_home, [source]))
     changes.extend(codex_hooks.prepare(codex_home, source))
     changes.extend(instructions.prepare_git_ignore())
     if len({path for path, _, _ in changes}) != len(changes):
@@ -82,14 +82,16 @@ def synchronize_source(source, claude_home, codex_home, adopt_from=None):
 
 
 def synchronize_sources(sources, claude_home, codex_home, stages, adopt_from=None, remove_sources=()):
-    desired, link_changes, changes = plan_sources(sources, claude_home, codex_home, adopt_from, remove_sources)
+    desired, link_changes, changes = plan_sources(sources, claude_home, codex_home, adopt_from, remove_sources,
+                                                  include_permissions=False)
     prepared = plugins.prepare_sources(sources, stages)
     _apply_plan(codex_home / 'skills', desired, link_changes, changes,
-                lambda: plugins.install_sources(prepared, claude_home))
+                lambda: plugins.install_sources(prepared, claude_home),
+                lambda: permissions.prepare(claude_home, list(sources.values())))
     return sources
 
 
-def _apply_plan(destination, desired, link_changes, changes, install_plugins):
+def _apply_plan(destination, desired, link_changes, changes, install_plugins, apply_permissions=None):
     state_path = destination / skills.STATE
     old_state = instructions.snapshot(state_path)
     skills.apply(destination, desired, link_changes)
@@ -98,6 +100,10 @@ def _apply_plan(destination, desired, link_changes, changes, install_plugins):
         instructions.apply(changes)
         instructions_applied = True
         install_plugins()
+        if apply_permissions:
+            # After the plugin install, which may rewrite settings.json, so the snapshots are current and a
+            # failure never needs a rollback over the plugin's edits; instructions.apply undoes its own writes.
+            instructions.apply(apply_permissions())
     except Exception as error:
         try:
             if instructions_applied:

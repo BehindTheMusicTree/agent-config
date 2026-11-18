@@ -64,6 +64,12 @@ class ClaudePermissionsTests(unittest.TestCase):
         self.sync(None)
         self.assertEqual(self.settings()['permissions']['allow'], [])
 
+    def test_rule_the_user_held_first_stays_after_the_fragment_drops_it(self):
+        self.settings({'permissions': {'allow': ['Bash(a)']}})
+        self.sync({'allow': ['Bash(a)']})
+        self.sync(None)
+        self.assertEqual(self.settings()['permissions']['allow'], ['Bash(a)'])
+
     def test_retire_removes_unmanaged_rules_from_any_list(self):
         self.settings({'permissions': {'allow': ['Bash(old)', 'Bash(keep)'], 'ask': ['Bash(old)']}})
         self.sync({'retire': ['Bash(old)']})

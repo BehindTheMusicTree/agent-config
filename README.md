@@ -30,7 +30,7 @@ Keep the previous release snapshots and configuration for recovery. Roll back a 
 
 ## Managed Claude permissions
 
-A source may ship `settings/permissions.json` (`allow`, `ask`, `deny`, `retire` lists of rules). Synchronization merges the fragments of all sources into `permissions` in `~/.claude/settings.json`, keeping unmanaged rules, removing rules it previously managed once a fragment drops them (tracked in a state file next to the settings) and rules listed in `retire`. Symlinked files and malformed settings stop the synchronization. Preview with `python3 scripts/sync-claude-permissions.py`, write with `--apply`. Codex execpolicy rules are out of scope.
+A source may ship `settings/permissions.json` (`allow`, `ask`, `deny`, `retire` lists of rules). Multi-source synchronization (after the plugin install, so a failure leaves the settings untouched) merges the fragments of all sources into `permissions` in `~/.claude/settings.json`, keeping unmanaged rules (a rule the user already held stays theirs), removing rules it previously managed once a fragment drops them (tracked in a state file next to the settings) and rules listed in `retire`. Symlinked files and malformed settings stop the synchronization. Preview with `python3 scripts/sync-claude-permissions.py`, write with `--apply`. Codex execpolicy rules are out of scope.
 
 ## Compaction threshold
 
