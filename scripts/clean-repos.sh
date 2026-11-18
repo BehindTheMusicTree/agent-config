@@ -325,6 +325,15 @@ worktree_branch_proven_on_trunk() {
 worktree_is_equivalent() {
   local path="$1" ref="$2" br="$3"
   [[ -d "$path" ]] || return 1
+  # Long-lived branches sit at or behind trunk, so they would always look
+  # "merged"; and a detached HEAD already contained in trunk has no work of its own.
+  if [[ -n "$br" ]]; then
+    case "$br" in "$trunk"|main|master|develop|HEAD) return 1 ;; esac
+    [[ "$br" != "${current_branch:-}" ]] || return 1
+  fi
+  if [[ -z "$br" ]] && git merge-base --is-ancestor "$ref" "origin/$trunk" 2>/dev/null; then
+    return 1
+  fi
   branch_fully_cherry_merged "$ref" || branch_adds_nothing_to_trunk "$ref" || return 1
   [[ -z "$(git -C "$path" status --porcelain 2>/dev/null)" ]] || return 1
   if [[ -n "$br" ]]; then

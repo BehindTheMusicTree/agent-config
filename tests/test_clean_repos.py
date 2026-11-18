@@ -374,6 +374,10 @@ class CleanReposTests(unittest.TestCase):
         git(path, 'add', '.')
         git(path, 'commit', '-q', '-m', 'detached work')
         sha = git(path, 'rev-parse', 'HEAD').strip()
+        # Move trunk first so the cherry-pick yields a distinct commit, not the same SHA.
+        (self.repo / 'other.txt').write_text('o\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'other')
         git(self.repo, 'cherry-pick', sha)
         git(self.repo, 'push', '-q', 'origin', 'main')
         self.assertIn('worktree-equivalent', self.run_script('scan'))
@@ -381,6 +385,19 @@ class CleanReposTests(unittest.TestCase):
         self.assertTrue(path.exists())
         output = self.run_script('apply', '--remove-equivalent')
         self.assertIn(f'removed-worktree={path} reason=content-on-trunk', output)
+
+    def test_fresh_detached_head_at_trunk_is_kept(self):
+        path = self.repo / '.claude' / 'worktrees' / 'fresh-detached'
+        git(self.repo, 'worktree', 'add', '-q', '--detach', str(path), 'main')
+        self.run_script('apply', '--remove-equivalent')
+        self.assertTrue(path.exists())
+
+    def test_long_lived_branch_worktree_at_trunk_is_kept(self):
+        path = self.repo / '.claude' / 'worktrees' / 'develop-wt'
+        git(self.repo, 'worktree', 'add', '-q', '-b', 'develop', str(path), 'main')
+        self.run_script('apply', '--remove-equivalent')
+        self.assertTrue(path.exists())
+        self.assertTrue(self.branch_exists('develop'))
 
     def test_excluded_equivalent_worktree_is_kept_by_path_sha_and_branch(self):
         path = self.add_cherry_picked()
