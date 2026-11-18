@@ -219,7 +219,7 @@ echo "install_log=$install_log"
 # Only point the agent at instruction files that document a setup section, so it skips a read otherwise.
 setup_docs=()
 for doc in CLAUDE.md AGENTS.md; do
-  if [[ -f "$wt_abs/$doc" ]] && grep -Eiq '^#{1,6}[[:space:]].*(setup|installation)' "$wt_abs/$doc"; then
+  if [[ -f "$wt_abs/$doc" ]] && grep -Eiq '^#{1,6}[[:space:]].*(setup|install|getting[[:space:]-]+started|quick[[:space:]-]*start|prerequisites|bootstrap)' "$wt_abs/$doc"; then
     setup_docs+=("$doc")
   fi
 done

@@ -52,6 +52,11 @@ class WorktreePathsTests(unittest.TestCase):
                 'commit', '-q', '-am', 'setup', cwd=root)
             output = run(script, 'codex', 'feature/some', 'main', cwd=root)
             self.assertIn('setup_docs=AGENTS.md\n', output)
+            (root / 'CLAUDE.md').write_text('@AGENTS.md\n\n## Getting started\n\n- `make bootstrap`\n')
+            run('git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                'commit', '-q', '-am', 'getting started', cwd=root)
+            output = run(script, 'codex', 'feature/both', 'main', cwd=root)
+            self.assertIn('setup_docs=CLAUDE.md,AGENTS.md\n', output)
 
     def test_scratch_excluded_when_local_config_overrides_global(self):
         with tempfile.TemporaryDirectory() as directory:
