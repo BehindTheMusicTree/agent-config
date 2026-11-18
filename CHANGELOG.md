@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-11-18
+
 ### Changed
 
 - Plan lifecycle: `create-pr` reconciles `.agent-plans/` into the PR body and follow-up issues and records it in a ledger (`scripts/plan-ledger.py record|status`); `cleanup-session` treats reconciled plans as disposable and asks only about unreconciled or modified ones.
