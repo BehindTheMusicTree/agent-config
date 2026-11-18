@@ -1,8 +1,10 @@
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +103,69 @@ class PlanLedgerTests(unittest.TestCase):
         (nested / '.agent-plans').symlink_to(target, target_is_directory=True)
         with self.assertRaises(ValueError):
             plan_ledger.inventory(self.root)
+    def fake_gh(self, output, exit_code=0):
+        bin_dir = Path(tempfile.mkdtemp(prefix='fake gh '))
+        self.addCleanup(lambda: __import__('shutil').rmtree(bin_dir, ignore_errors=True))
+        gh = bin_dir / 'gh'
+        gh.write_text(f"#!/usr/bin/env bash\nprintf '%s' '{output}'\nexit {exit_code}\n")
+        gh.chmod(0o755)
+        return mock.patch.dict(os.environ, {'PATH': f'{bin_dir}:{os.environ["PATH"]}'})
+
+    def dest(self):
+        return Path(tempfile.mkdtemp(prefix='archive ')) / 'out'
+
+    def test_reconciled_plan_of_a_merged_pr_is_discarded(self):
+        (self.plans / 'topic.md').write_text('decision\n')
+        plan_ledger.record(self.root, 5)
+        dest = self.dest()
+        with self.fake_gh('{"state":"MERGED","headRefName":"feature/x"}'):
+            result = plan_ledger.archive(self.root, dest, 'feature/x')
+        self.assertEqual(result['discarded'], ['.agent-plans/topic.md'])
+        self.assertEqual(result['archived'], [])
+        self.assertFalse(dest.exists())
+
+    def test_modified_and_unrecorded_plans_are_moved(self):
+        (self.plans / 'topic.md').write_text('decision\n')
+        plan_ledger.record(self.root, 5)
+        (self.plans / 'topic.md').write_text('changed\n')
+        (self.plans / 'new.md').write_text('new\n')
+        dest = self.dest()
+        with self.fake_gh('{"state":"MERGED","headRefName":"feature/x"}'):
+            result = plan_ledger.archive(self.root, dest, 'feature/x')
+        self.assertEqual(result['archived'], ['.agent-plans/new.md', '.agent-plans/topic.md'])
+        self.assertEqual((dest / '.agent-plans' / 'topic.md').read_text(), 'changed\n')
+        self.assertFalse((self.plans / 'topic.md').exists())
+        self.assertFalse((self.plans / 'new.md').exists())
+
+    def test_pr_from_another_branch_or_not_merged_archives_everything(self):
+        (self.plans / 'topic.md').write_text('decision\n')
+        plan_ledger.record(self.root, 5)
+        for output in ('{"state":"MERGED","headRefName":"other"}', '{"state":"OPEN","headRefName":"feature/x"}'):
+            dest = self.dest()
+            with self.fake_gh(output):
+                result = plan_ledger.archive(self.root, dest, 'feature/x')
+            self.assertEqual(result['archived'], ['.agent-plans/topic.md'])
+            (self.plans / 'topic.md').write_text('decision\n')
+
+    def test_gh_failure_archives_everything(self):
+        (self.plans / 'topic.md').write_text('decision\n')
+        plan_ledger.record(self.root, 5)
+        with self.fake_gh('', exit_code=1):
+            result = plan_ledger.archive(self.root, self.dest(), 'feature/x')
+        self.assertEqual(result['archived'], ['.agent-plans/topic.md'])
+
+    def test_existing_destination_is_refused(self):
+        (self.plans / 'topic.md').write_text('x\n')
+        dest = self.dest()
+        dest.mkdir()
+        with self.assertRaises(ValueError):
+            plan_ledger.archive(self.root, dest, 'feature/x')
+        self.assertTrue((self.plans / 'topic.md').exists())
+
+    def test_symlinked_plan_is_refused(self):
+        (self.plans / 'link.md').symlink_to(self.root / 'elsewhere.md')
+        with self.assertRaises(ValueError):
+            plan_ledger.archive(self.root, self.dest(), 'feature/x')
 
 
 if __name__ == '__main__':

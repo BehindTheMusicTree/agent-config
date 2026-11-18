@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -93,6 +94,50 @@ def status(repo):
             'head': ledger['head'] if ledger else None, 'plans': plans}
 
 
+def pr_merged_from_branch(root, ledger, branch):
+    """True when the ledger's PR is merged and was opened from this branch; any doubt is False."""
+    if not ledger or not branch or ledger['pr'] == 0:
+        return False
+    try:
+        result = subprocess.run(['gh', 'pr', 'view', str(ledger['pr']), '--json', 'state,headRefName'], cwd=root,
+                                capture_output=True, check=True, timeout=60)
+        data = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get('state') == 'MERGED' and data.get('headRefName') == branch
+
+
+def archive(repo, dest, branch):
+    """Move the plans a merged PR did not reconcile out of the worktree, before it is removed.
+
+    Plans recorded in the ledger and unchanged are disposable only when the ledger's PR is merged and
+    came from `branch`. Everything else (modified, unrecorded, unreadable ledger, unknown PR state)
+    is copied to dest, verified by hash, then removed from the worktree.
+    """
+    root = Path(git(repo, 'rev-parse', '--show-toplevel'))
+    plans = inventory(root)
+    path = ledger_path(root)
+    try:
+        ledger = read_ledger(path) if path.exists() else None
+    except ValueError:
+        ledger = None
+    recorded = ledger['plans'] if ledger else {}
+    drop = pr_merged_from_branch(root, ledger, branch)
+    discarded = sorted(relative for relative, digest in plans.items() if drop and recorded.get(relative) == digest)
+    archived = sorted(set(plans) - set(discarded))
+    if archived and Path(dest).exists():
+        raise ValueError(f'{dest}: archive destination already exists')
+    for relative in archived:
+        source = root / relative
+        target = Path(dest) / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        if hashlib.sha256(target.read_bytes()).hexdigest() != plans[relative]:
+            raise ValueError(f'{relative}: archived copy differs from the plan')
+        source.unlink()
+    return {'dest': str(dest), 'archived': archived, 'discarded': discarded}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo', default='.')
@@ -102,11 +147,19 @@ def main():
     record_parser.add_argument('--exclude', action='append', default=[], metavar='PATH',
                                help='Worktree-relative plan unrelated to this PR; it stays unrecorded.')
     commands.add_parser('status', help='Compare current plans with the ledger; merge state is not queried.')
+    archive_parser = commands.add_parser('archive', help='Move plans a merged PR did not reconcile to a directory.')
+    archive_parser.add_argument('--dest', required=True, help='Directory that receives the archived plans; must not exist.')
+    archive_parser.add_argument('--branch', default='', help='Branch of this worktree; empty for a detached HEAD.')
     args = parser.parse_args()
     if args.command == 'record' and args.pr < 0:
         parser.error('--pr must be a non-negative PR number')
     try:
-        result = record(args.repo, args.pr, args.exclude) if args.command == 'record' else status(args.repo)
+        if args.command == 'record':
+            result = record(args.repo, args.pr, args.exclude)
+        elif args.command == 'archive':
+            result = archive(args.repo, args.dest, args.branch)
+        else:
+            result = status(args.repo)
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         sys.stderr.write(f'plan-ledger: {exc}\n')
         return 1

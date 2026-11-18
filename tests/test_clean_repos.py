@@ -12,6 +12,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'clean-repos.sh'
 FAKE_GH = """#!/usr/bin/env bash
 case "$1 $2" in
   "repo view") exit 0 ;;
+  "pr view") printf '%s' "${GH_PR_VIEW:-}"; [[ -n "${GH_PR_VIEW_FAIL:-}" ]] && exit 1; exit 0 ;;
   "pr list")
     if [[ "$*" == *"--state open"* ]]; then
       [[ -n "${GH_OPEN_FAIL:-}" ]] && exit 1
@@ -61,6 +62,10 @@ class CleanReposTests(unittest.TestCase):
         git(base, 'init', '-q', '--bare', '-b', 'main', str(self.origin))
         git(base, 'clone', '-q', str(self.origin), str(self.repo))
         git(self.repo, 'checkout', '-q', '-b', 'main')
+        # The installer's global exclude hides plan dirs locally but not in CI; mirror it.
+        exclude = self.repo / '.git' / 'info' / 'exclude'
+        exclude.parent.mkdir(exist_ok=True)
+        exclude.write_text('.agent-plans/\n.agent-tmp/\n')
         (self.repo / 'README.md').write_text('hello\n')
         git(self.repo, 'add', '.')
         git(self.repo, 'commit', '-q', '-m', 'initial')
@@ -255,41 +260,169 @@ class CleanReposTests(unittest.TestCase):
         self.assertTrue(path.exists())
         self.assertIn('feature/d', git(self.repo, 'branch', '--list', 'feature/d'))
 
-    def test_ignored_plan_protects_worktree_and_branch(self):
+    def add_plan(self, path, name='topic.md', nested=False):
+        plans = path / ('nested' if nested else '') / '.agent-plans'
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / name).write_text('plan\n')
+        return plans / name
+
+    def test_unreconciled_plan_is_archived_then_worktree_removed(self):
         path = self.add_worktree('feature/plans', merged=True)
-        plans = path / '.agent-plans'
-        plans.mkdir()
-        (plans / '.gitignore').write_text('*\n!.gitignore\n')
-        git(path, 'add', '-f', '.agent-plans/.gitignore')
-        git(path, 'commit', '-qm', 'add plan directory')
-        git(self.repo, 'merge', '-q', '--ff-only', 'feature/plans')
-        git(self.repo, 'push', '-q', 'origin', 'main')
-        (plans / 'regional-multiparentality.md').write_text('plan\n')
-        self.assertEqual(git(path, 'status', '--porcelain'), '')
+        plan = self.add_plan(path, 'regional.md')
         scan = self.run_script('scan')
-        self.assertIn('dirty-worktree', scan)
-        self.assertIn('plans=1: regional-multiparentality.md', scan)
+        self.assertIn('worktree-plans', scan)
+        self.assertIn('plans=1: regional.md', scan)
         output = self.run_script('apply')
-        self.assertIn('reason=agent-plans-present', output)
-        self.assertTrue((plans / 'regional-multiparentality.md').exists())
-        self.assertIn('feature/plans', git(self.repo, 'branch', '--list', 'feature/plans'))
-        (plans / 'regional-multiparentality.md').unlink()
-        output = self.run_script('apply')
+        archive = self.repo / '.git' / 'agent-plans-archive' / 'repo-feature-plans'
+        self.assertIn(f'archived-plans={archive}', output)
         self.assertIn(f'removed-worktree={path}', output)
+        self.assertEqual((archive / '.agent-plans' / 'regional.md').read_text(), 'plan\n')
+        self.assertFalse(path.exists())
+        self.assertFalse(plan.exists())
 
-    def test_nested_plan_protects_worktree(self):
+    def test_nested_plan_is_archived(self):
         path = self.add_worktree('feature/nested-plans', merged=True)
-        plans = path / 'nested' / '.agent-plans'
-        plans.mkdir(parents=True)
-        (plans / 'topic.md').write_text('plan\n')
-        self.assertIn('reason=agent-plans-present', self.run_script('apply'))
-        self.assertTrue((plans / 'topic.md').exists())
+        self.add_plan(path, nested=True)
+        output = self.run_script('apply')
+        self.assertIn('archived-plans=', output)
+        self.assertIn(f'removed-worktree={path}', output)
+        archive = self.repo / '.git' / 'agent-plans-archive' / 'repo-feature-nested-plans'
+        self.assertTrue((archive / 'nested' / '.agent-plans' / 'topic.md').exists())
 
-    def test_plan_directory_symlink_is_protected(self):
+    def test_reconciled_plan_of_a_merged_pr_is_deleted_with_the_worktree(self):
+        path = self.add_worktree('feature/rec', merged=True)
+        self.add_plan(path)
+        subprocess.run([shutil.which('python3'), str(SCRIPT.parent / 'plan-ledger.py'), '--repo', str(path),
+                        'record', '--pr', '9'], check=True, capture_output=True)
+        output = self.run_script('apply', GH_PR_VIEW='{"state":"MERGED","headRefName":"feature/rec"}')
+        self.assertNotIn('archived-plans=/', output)
+        self.assertIn(f'removed-worktree={path}', output)
+        self.assertFalse((self.repo / '.git' / 'agent-plans-archive').exists())
+
+    def test_plan_directory_symlink_is_kept_as_uncommitted(self):
         path = self.add_worktree('feature/symlink', merged=True)
         (path / '.agent-plans').symlink_to(path / 'missing', target_is_directory=True)
-        self.assertIn('reason=agent-plans-present', self.run_script('apply'))
+        self.assertIn('reason=uncommitted-changes', self.run_script('apply'))
         self.assertTrue(path.exists())
+
+    def test_never_committed_worktree_with_plans_stays_protected(self):
+        path = self.add_empty_worktree('feature/fresh-plan', days_old=30)
+        plan = self.add_plan(path)
+        output = self.run_script('apply')
+        self.assertIn('reason=agent-plans-present', output)
+        self.assertTrue(plan.exists())
+        self.assertTrue(self.branch_exists('feature/fresh-plan'))
+
+    def add_cherry_picked(self, branch='feature/c'):
+        path = self.add_worktree(branch, merged=False)
+        self.commit_on_main('trunk moves on', 'moved.txt')
+        git(self.repo, 'cherry-pick', branch)
+        git(self.repo, 'push', '-q', 'origin', 'main')
+        return path
+
+    def test_equivalent_worktree_needs_the_flag_to_be_removed(self):
+        path = self.add_cherry_picked()
+        scan = self.run_script('scan')
+        self.assertIn(f'worktree-equivalent (content on trunk, removable with --remove-equivalent): {path}:feature/c', scan)
+        output = self.run_script('apply')
+        self.assertIn('reason=equivalent-not-enabled', output)
+        self.assert_worktree_kept(path, 'feature/c')
+        output = self.run_script('apply', '--remove-equivalent')
+        self.assertIn(f'removed-worktree={path} reason=content-on-trunk', output)
+        self.assertIn('deleted-local=feature/c reason=content-on-trunk', output)
+        self.assertFalse(path.exists())
+        self.assertFalse(self.branch_exists('feature/c'))
+
+    def test_reworked_content_is_never_equivalent(self):
+        path = self.add_worktree('feature/r', merged=False)
+        self.commit_on_main('trunk moves on', 'moved.txt')
+        git(self.repo, 'cherry-pick', 'feature/r')
+        (path / 'work.txt').write_text('reworked after the pick\n')
+        git(path, 'commit', '-qam', 'rework')
+        git(self.repo, 'push', '-q', 'origin', 'main')
+        self.assertNotIn('worktree-equivalent', self.run_script('scan'))
+        self.run_script('apply', '--remove-equivalent')
+        self.assert_worktree_kept(path, 'feature/r')
+
+    def test_equivalent_worktree_with_changes_is_kept(self):
+        path = self.add_cherry_picked()
+        (path / 'work.txt').write_text('edited\n')
+        self.run_script('apply', '--remove-equivalent')
+        self.assert_worktree_kept(path, 'feature/c')
+
+    def test_equivalent_worktree_with_open_pr_or_unknown_pr_state_is_kept(self):
+        path = self.add_cherry_picked()
+        self.run_script('apply', '--remove-equivalent', GH_OPEN_BRANCHES='feature/c\n')
+        self.assert_worktree_kept(path, 'feature/c')
+        self.run_script('apply', '--remove-equivalent', GH_OPEN_FAIL='1')
+        self.assert_worktree_kept(path, 'feature/c')
+
+    def test_equivalent_worktree_in_use_is_kept(self):
+        path = self.add_cherry_picked()
+        proc = self.start_process(path)
+        self.run_script('apply', '--remove-equivalent')
+        self.assert_worktree_kept(path, 'feature/c')
+        self.assertIsNone(proc.poll())
+
+    def test_equivalent_worktree_plans_are_archived(self):
+        path = self.add_cherry_picked()
+        self.add_plan(path)
+        output = self.run_script('apply', '--remove-equivalent')
+        self.assertIn('archived-plans=', output)
+        self.assertFalse(path.exists())
+
+    def test_equivalent_detached_head_is_removed_with_the_flag(self):
+        path = self.repo / '.claude' / 'worktrees' / 'detached'
+        git(self.repo, 'worktree', 'add', '-q', '--detach', str(path), 'main')
+        (path / 'd.txt').write_text('d\n')
+        git(path, 'add', '.')
+        git(path, 'commit', '-q', '-m', 'detached work')
+        sha = git(path, 'rev-parse', 'HEAD').strip()
+        # Move trunk first so the cherry-pick yields a distinct commit, not the same SHA.
+        (self.repo / 'other.txt').write_text('o\n')
+        git(self.repo, 'add', '.')
+        git(self.repo, 'commit', '-q', '-m', 'other')
+        git(self.repo, 'cherry-pick', sha)
+        git(self.repo, 'push', '-q', 'origin', 'main')
+        self.assertIn('worktree-equivalent', self.run_script('scan'))
+        self.run_script('apply')
+        self.assertTrue(path.exists())
+        output = self.run_script('apply', '--remove-equivalent')
+        self.assertIn(f'removed-worktree={path} reason=content-on-trunk', output)
+
+    def test_fresh_detached_head_at_trunk_is_kept(self):
+        path = self.repo / '.claude' / 'worktrees' / 'fresh-detached'
+        git(self.repo, 'worktree', 'add', '-q', '--detach', str(path), 'main')
+        self.run_script('apply', '--remove-equivalent')
+        self.assertTrue(path.exists())
+
+    def test_long_lived_branch_worktree_at_trunk_is_kept(self):
+        path = self.repo / '.claude' / 'worktrees' / 'develop-wt'
+        git(self.repo, 'worktree', 'add', '-q', '-b', 'develop', str(path), 'main')
+        self.run_script('apply', '--remove-equivalent')
+        self.assertTrue(path.exists())
+        self.assertTrue(self.branch_exists('develop'))
+
+    def test_excluded_equivalent_worktree_is_kept_by_path_sha_and_branch(self):
+        path = self.add_cherry_picked()
+        for exclude in (self.unresolved(path), 'feature/c'):
+            self.run_script('apply', '--remove-equivalent', '--exclude', exclude)
+            self.assert_worktree_kept(path, 'feature/c')
+        det = self.repo / '.claude' / 'worktrees' / 'det'
+        git(self.repo, 'worktree', 'add', '-q', '--detach', str(det), 'main')
+        (det / 'e.txt').write_text('e\n')
+        git(det, 'add', '.')
+        git(det, 'commit', '-q', '-m', 'det work')
+        sha = git(det, 'rev-parse', 'HEAD').strip()
+        git(self.repo, 'cherry-pick', sha)
+        git(self.repo, 'push', '-q', 'origin', 'main')
+        self.run_script('apply', '--remove-equivalent', '--exclude', sha)
+        self.assertTrue(det.exists())
+
+    def test_apply_output_has_no_hint(self):
+        self.add_worktree('feature/s', merged=False)
+        self.commit_on_main('work on feature/s (#39)', 'other.txt')
+        self.assertNotIn('likely-superseded-by', self.run_script('apply', '--remove-equivalent'))
 
     def test_deletions_only_worktree_is_labelled_and_still_protected(self):
         path = self.add_worktree('feature/d', merged=True)
