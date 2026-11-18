@@ -25,9 +25,9 @@ It prints `key=value` lines, ending in `status=ok` or `status=blocked reason=<re
 
 If `status=blocked`, stop and report the reason to the user rather than trying to work around it manually.
 
-## Step 2 — Check for extra CLAUDE.md setup steps
+## Step 2 — Check for extra documented setup steps
 
-The script installs dependencies via the detected package manager, but can't know about repo-specific setup steps documented in prose. When it prints `check_claude_md_setup=true`, check the repo root's `CLAUDE.md` for a documented Setup section and follow any additional commands it lists beyond a plain package install — things like installing a CLI's plugin collections, or registering pre-commit hooks (this has come up in practice: a repo whose `CLAUDE.md` Setup section required a venv install *and* `ansible-galaxy collection install` *and* `pre-commit install`, none of which a lockfile install alone would have caught). Run these from inside the new worktree, not the main one. Keep this generic — don't special-case any particular tool by name, just follow what the repo's own `CLAUDE.md` documents. If there's no Setup section, skip this and say so.
+The script installs dependencies via the detected package manager, but can't know about repo-specific setup steps documented in prose. It prints `setup_docs=<files>` listing the root instruction files (`CLAUDE.md`, `AGENTS.md`) with a setup-like heading (setup, install, getting started, quick start, prerequisites, bootstrap). If it is not `none`, read only that section and follow any additional commands it lists beyond a plain package install — things like installing a CLI's plugin collections, or registering pre-commit hooks (this has come up in practice: a repo whose `CLAUDE.md` Setup section required a venv install *and* `ansible-galaxy collection install` *and* `pre-commit install`, none of which a lockfile install alone would have caught). Run these from inside the new worktree, not the main one. Keep this generic — don't special-case any particular tool by name, just follow what the repo's own `CLAUDE.md` documents. If `setup_docs=none`, skip this step without reading any file and say so.
 
 ## Step 3 — Output format
 
@@ -36,5 +36,5 @@ Keep this terse, built from the script's `key=value` output:
 2. Base ref it branched from
 3. Count of env files copied (or "no gitignored env files found")
 4. Port variables reassigned and their new values, plus any cross-file references rewritten (or "no port variables found"). If the script printed any `stale_ref=` lines, list each one and say the copied value points at a dead port that differs from `.env.example` — offer to fix it, don't rewrite it yourself
-5. Whether dependencies were installed (with which package manager, or venv) — if `install_status=fail`, show the tail of `install_log` — and whether any extra `CLAUDE.md`-documented setup steps were run
+5. Whether dependencies were installed (with which package manager, or venv) — if `install_status=fail`, show the tail of `install_log` — and whether any extra documented setup steps were run
 6. If the script printed `dev_up_script=<path>` (not `none`), mention it as the next step to start dev servers, e.g. "To start dev servers: `<path>`" — don't run it yourself, this command only sets up the worktree. (Use `new-worktree-and-serve` instead when the user wants both done in one go.)

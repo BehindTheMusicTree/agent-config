@@ -19,9 +19,9 @@ If no branch name was given, infer a concise name from the task using a prefix a
 
 Same script and behavior as `new-worktree`'s Step 1 — see that command for the full description. Allow enough time for the command to finish (the dependency install can exceed the 120s default). If `install_status=fail`, show the tail of `install_log` in the output. If `status=blocked`, stop and report the reason rather than trying to work around it manually.
 
-## Step 2 — Check for extra CLAUDE.md setup steps
+## Step 2 — Check for extra documented setup steps
 
-Same as `new-worktree`'s Step 2: when the script prints `check_claude_md_setup=true`, check the repo root's `CLAUDE.md` for a documented Setup section and follow any additional commands it lists. Run these from inside the new worktree.
+Same as `new-worktree`'s Step 2: when the script prints `setup_docs=<files>` (not `none`), read the setup section of those root instruction files and follow any additional commands it lists. Run these from inside the new worktree.
 
 ## Step 3 — Start dev servers, if the repo has a launcher
 

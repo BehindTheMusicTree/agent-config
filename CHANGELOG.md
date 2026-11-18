@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `new-worktree` and `new-worktree-and-serve` read a repository's setup instructions only when its root `CLAUDE.md` or `AGENTS.md` has a setup-like heading (setup, install, getting started, quick start, prerequisites, bootstrap): the script reports them as `setup_docs=` instead of always printing `check_claude_md_setup=true`, saving a file read in most repositories.
+
 ### Fixed
 
 - Handoff recaps start with a resume check that stops a session started outside the resume directory.
