@@ -2,8 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- `clean-repos` / `cleanup-session`: `apply --remove-equivalent` removes clean, idle worktrees (branch or detached HEAD, no open PR) whose content is proven on trunk (`worktree-equivalent`, `reason=content-on-trunk`); without the flag they are kept (`equivalent-not-enabled`).
+- `scripts/plan-ledger.py archive` moves plans a merged PR did not reconcile to `<git-common-dir>/agent-plans-archive/`; `apply` reports it as `archived-plans=`.
+
+### Changed
+
+- Plans no longer block removal of merged or equivalent worktrees: reconciled plans go with the worktree, the others are archived first. Only never-committed worktrees with plans stay protected (`agent-plans-present`).
+
 ### Fixed
 
+- `--exclude <sha>` protects a detached-HEAD worktree.
 - `clean-repos` / `cleanup-session`: `--stale-empty-days 08` (or `09`) no longer fails as an invalid octal number; the value is read as base 10.
 
 ## [3.4.0] - 2026-11-18
