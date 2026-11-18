@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-11-18
+
 ### Added
 
 - Managed Claude permissions: `settings/permissions.json` fragments from each source are merged into `~/.claude/settings.json` during multi-source synchronization (`scripts/sync-claude-permissions.py` for a manual run).
