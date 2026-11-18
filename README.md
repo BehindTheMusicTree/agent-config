@@ -28,6 +28,10 @@ The updater reconciles all configured sources together. Personal files and local
 
 Keep the previous release snapshots and configuration for recovery. Roll back a pair by pinning the preceding private version in the profile and synchronizing again. Global instruction originals can be restored through `scripts/install-instructions.py --restore`.
 
+## Managed Claude permissions
+
+A source may ship `settings/permissions.json` (`allow`, `ask`, `deny`, `retire` lists of rules). Multi-source synchronization (after the plugin install, so a failure leaves the settings untouched) merges the fragments of all sources into `permissions` in `~/.claude/settings.json`, keeping unmanaged rules (a rule the user already held stays theirs), removing rules it previously managed once a fragment drops them (tracked in a state file next to the settings) and rules listed in `retire`. Symlinked files and malformed settings stop the synchronization. Preview with `python3 scripts/sync-claude-permissions.py`, write with `--apply`. Codex execpolicy rules are out of scope.
+
 ## Compaction threshold
 
 Set the compaction point once, in Claude: `env.CLAUDE_CODE_AUTO_COMPACT_WINDOW` in `~/.claude/settings.json`. Claude Code compacts at that window minus an internal, undocumented reserve; Codex compacts when the active context reaches `model_auto_compact_token_limit`. Synchronization writes `model_auto_compact_token_limit = window - claudeCompactReserveTokens` into the top level of `~/.codex/config.toml`, changing only that line, and `--check` reports drift. The reserve lives in `settings/compact.json`; re-measure it after a Claude Code upgrade (`/context`, "Autocompact buffer", or the observed compaction point). When the Claude variable is unset, Codex is left unchanged. The edit requires Python 3.11+ and is accepted only when the parsed file equals the original plus that key; otherwise synchronization stops and asks for a manual edit. Preview with `python3 scripts/sync-compact-limit.py`, write with `--apply`.

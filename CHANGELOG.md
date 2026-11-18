@@ -4,6 +4,7 @@
 
 ### Added
 
+- Managed Claude permissions: `settings/permissions.json` fragments from each source are merged into `~/.claude/settings.json` during multi-source synchronization (`scripts/sync-claude-permissions.py` for a manual run).
 - `clean-repos` / `cleanup-session`: `apply --remove-equivalent` removes clean, idle worktrees (branch or detached HEAD, no open PR) whose content is proven on trunk (`worktree-equivalent`, `reason=content-on-trunk`); without the flag they are kept (`equivalent-not-enabled`).
 - `scripts/migrate-plans.sh [--apply] <root>` moves legacy `.agent-plans/` contents into the central plan directories (dry run by default, never overwrites).
 
