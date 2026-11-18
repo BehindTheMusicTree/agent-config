@@ -117,10 +117,29 @@ class ProjectAdapterTests(unittest.TestCase):
             (nested / 'AGENTS.md').unlink()
             self.assertIn('pkg/AGENTS.md', self.run_check(root).stderr)
 
+    def test_nested_claude_edge_cases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            nested = root / 'pkg'
+            nested.mkdir()
+            (nested / 'AGENTS.md').write_text('Nested\n')
+            (nested / 'CLAUDE.md').write_bytes(b'\xff\xfe')
+            self.assertIn('CLAUDE.md must contain only', self.run_check(root).stderr)
+            (nested / 'CLAUDE.md').unlink()
+            (nested / 'CLAUDE.md').symlink_to('missing')
+            self.assertIn('pkg/CLAUDE.md', self.run_check(root).stderr)
+
+    def test_unrelated_instruction_names_are_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            (root / 'docs').mkdir()
+            (root / 'docs/copilot-instructions.md').write_text('docs')
+            self.assertEqual(self.run_check(root).returncode, 0)
+
     def test_client_specific_instructions_forbidden(self):
         forbidden = ['.github/copilot-instructions.md', '.github/instructions/a.instructions.md', '.cursorrules',
                      '.cursor/rules/a.mdc', '.windsurfrules', '.windsurf/rules/a.md', '.clinerules', 'sub/GEMINI.md']
-        for name in forbidden:
+        for name in forbidden + ['sub/.github/copilot-instructions.md']:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = self.make_root(directory)
                 path = root / name
