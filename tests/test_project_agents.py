@@ -94,6 +94,64 @@ class ProjectAdapterTests(unittest.TestCase):
             (links / 'example').mkdir()
             self.assertIn('expected relative Claude skill link', run().stderr)
 
+    def run_check(self, root):
+        return subprocess.run([sys.executable, str(SCRIPT), str(root)], capture_output=True, text=True)
+
+    def make_root(self, directory):
+        root = Path(directory)
+        (root / 'AGENTS.md').write_text('Root\n')
+        (root / 'CLAUDE.md').write_text('@AGENTS.md\n')
+        return root
+
+    def test_nested_pairs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            nested = root / 'pkg'
+            nested.mkdir()
+            (nested / 'AGENTS.md').write_text('Nested\n')
+            self.assertIn('pkg/CLAUDE.md', self.run_check(root).stderr)
+            (nested / 'CLAUDE.md').write_text('@AGENTS.md\nextra\n')
+            self.assertIn('CLAUDE.md must contain only @AGENTS.md', self.run_check(root).stderr)
+            (nested / 'CLAUDE.md').write_text('@AGENTS.md\n')
+            self.assertEqual(self.run_check(root).returncode, 0)
+            (nested / 'AGENTS.md').unlink()
+            self.assertIn('pkg/AGENTS.md', self.run_check(root).stderr)
+
+    def test_nested_claude_edge_cases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            nested = root / 'pkg'
+            nested.mkdir()
+            (nested / 'AGENTS.md').write_text('Nested\n')
+            (nested / 'CLAUDE.md').write_bytes(b'\xff\xfe')
+            self.assertIn('CLAUDE.md must contain only', self.run_check(root).stderr)
+            (nested / 'CLAUDE.md').unlink()
+            (nested / 'CLAUDE.md').symlink_to('missing')
+            self.assertIn('pkg/CLAUDE.md', self.run_check(root).stderr)
+
+    def test_unrelated_instruction_names_are_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            (root / 'docs').mkdir()
+            (root / 'docs/copilot-instructions.md').write_text('docs')
+            self.assertEqual(self.run_check(root).returncode, 0)
+
+    def test_client_specific_instructions_forbidden(self):
+        forbidden = ['.github/copilot-instructions.md', '.github/instructions/a.instructions.md', '.cursorrules',
+                     '.cursor/rules/a.mdc', '.windsurfrules', '.windsurf/rules/a.md', '.clinerules', 'sub/GEMINI.md']
+        for name in forbidden + ['sub/.github/copilot-instructions.md']:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = self.make_root(directory)
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('x')
+                self.assertIn(f'{name}: client-specific', self.run_check(root).stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.make_root(directory)
+            (root / '.cursor').mkdir()
+            (root / '.cursor/environment.json').write_text('{}')
+            self.assertEqual(self.run_check(root).returncode, 0)
+
 
 if __name__ == '__main__':
     unittest.main()
