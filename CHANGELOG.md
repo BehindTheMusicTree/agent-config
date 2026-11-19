@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-11-19
+
 ### Added
 
 - Handoff: a **Following** section holds the one task the next session handles; its phase (`plan`, `diag`, `implement`, `pr-bump-release`) selects the model and effort of the restart command from the handoff model table in the global instructions.
