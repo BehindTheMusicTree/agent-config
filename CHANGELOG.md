@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The README handoff examples show `<model flags>` in the Claude and Codex restart commands.
+
 ## [3.7.0] - 2026-11-19
 
 ### Added
