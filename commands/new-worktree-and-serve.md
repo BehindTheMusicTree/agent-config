@@ -11,7 +11,7 @@ If no branch name was given, infer a concise name from the task using a prefix a
 ## Step 1 — Run the setup script
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree-setup.sh" [--plan <absolute-plan-path>] claude <branch-name> [<base-ref>]
+"${CLAUDE_PLUGIN_ROOT}/scripts/new-worktree-setup.sh" claude <branch-name> [<base-ref>]
 ```
 
 Same script and behavior as `new-worktree`'s Step 1 — see that command for the full description. Run it with the Bash tool's `timeout: 600000` (the dependency install can exceed the 120s default). If `install_status=fail`, show the tail of `install_log` in the output. If `status=blocked`, stop and report the reason rather than trying to work around it manually.

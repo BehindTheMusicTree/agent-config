@@ -14,7 +14,7 @@ If no branch name was given, infer a concise name from the task using a prefix a
 ## Step 1 — Run the setup script
 
 ```bash
-"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" [--plan <absolute-plan-path>] codex <branch-name> [<base-ref>]
+"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" codex <branch-name> [<base-ref>]
 ```
 
 Allow enough time for the command to finish — the dependency install can exceed the 120s default, and output printed before an auto-move to the background is lost.

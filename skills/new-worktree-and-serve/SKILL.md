@@ -14,7 +14,7 @@ If no branch name was given, infer a concise name from the task using a prefix a
 ## Step 1 — Run the setup script
 
 ```bash
-"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" [--plan <absolute-plan-path>] codex <branch-name> [<base-ref>]
+"$SKILL_REPO_ROOT/scripts/new-worktree-setup.sh" codex <branch-name> [<base-ref>]
 ```
 
 Same script and behavior as `new-worktree`'s Step 1 — see that command for the full description. Allow enough time for the command to finish (the dependency install can exceed the 120s default). If `install_status=fail`, show the tail of `install_log` in the output. If `status=blocked`, stop and report the reason rather than trying to work around it manually.
