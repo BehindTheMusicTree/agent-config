@@ -3,7 +3,7 @@
   "commands/cleanup-session.md": "59f75d718f2eb98f75f21890e7ae83e420ad041dba38e6d5664d0c78150b981d",
   "commands/create-pr-and-fix-ci.md": "5290a13086e8511d4784789b60cda4778a456351ef804466f0842893fbc339ad",
   "commands/create-pr.md": "3a0cb8ee3ab735905c821f3624913f392018cb206d4bdeab04d9bd4a72b4ebd0",
-  "commands/handoff.md": "4451d657e2a18ab6d8cd80068c9db4b2f90d08eb991f0488e00a9a393a3ab399",
+  "commands/handoff.md": "2c6c1fd9d34d1e8a462270d750ad6a5855b56f11de9f689c02ddcfef758a634a",
   "commands/new-worktree-and-serve.md": "94bbb6610a7f5b9211555f112cafc1b44d9adfe319ff45a3e31734a085602ab5",
   "commands/new-worktree.md": "e2fafe191bbd0806702bf00f0b4e00cf7e77688a323df2e13d1977c378eb34c3",
   "commands/refresh-worktree.md": "e536b6dcb42fcf0c6ca289cda2f19e202d4b699a1564da4821237d204e586875",
