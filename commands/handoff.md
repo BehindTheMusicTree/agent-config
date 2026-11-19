@@ -35,7 +35,7 @@ echo "resume: $(cd "<resume directory>" && pwd -P)"
 
 At most about 30 lines, self-contained, in the language of the user's latest message. The recap exists to let the next session continue: spend the lines on context and remaining work, not on history.
 
-First choose the next session's model. Classify **Following** (not the whole plan) as `plan` (design, planning), `diag` (investigation, diagnosis), `implement`, or `pr-bump-release` (PR, CI fixes, version bump, tag, publication, local resynchronization). Look up that phase's row in the handoff model table of the global instructions; it gives `<model>` and `<effort>` per client. When the table or the row is missing, the model flags are empty: generate the commands without them and say so in Step 5.
+First choose the next session's model. Classify **Following** (not the whole plan) as `plan` (design, planning), `diag` (investigation, diagnosis), `implement`, or `pr-bump-release` (PR, CI fixes, version bump, tag, publication, local resynchronization). Look up that phase in the global instructions' **Handoff models** table: columns `phase`, `claude` and `codex`, one row per phase, each client cell written `<model>/<effort>` (for example `sonnet/medium`). When the table, the row or this client's cell is missing, the model flags are empty: drop `<model flags>` and its leading space from the commands below and say so in Step 5.
 
 Start with a header line: date, `<repo>`, branch and short HEAD SHA from Step 2, the resume directory, and the phase. Then, on the next line, the **Resume check**: if the working directory of the session reading the recap is not the resume directory, that session does nothing else and tells the user to restart with `/exit`, then `cd '<resume directory>' && claude <model flags> '@<absolute path of the file written in Step 4>'`, where `<model flags>` is `--model <model> --effort <effort>`. Then these sections:
 
@@ -61,4 +61,4 @@ When the file was written, do not print the recap: the file already holds it, an
 
 Append "(no handoff model for `<phase>`)" when the model flags are empty.
 
-When no file was written, print the recap as a fenced block instead, followed by "Run `/clear`, then paste the block." when model flags are empty and those two lines show the same non-empty path, otherwise by "Run `/exit`, then `cd '<resume directory>' && claude <model flags>`, and paste the block."
+When no file was written, print the recap as a fenced block instead, with the same note when the model flags are empty, followed by "Run `/clear`, then paste the block." when model flags are empty and those two lines show the same non-empty path, otherwise by "Run `/exit`, then `cd '<resume directory>' && claude <model flags>`, and paste the block."
