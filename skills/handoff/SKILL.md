@@ -48,9 +48,9 @@ Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git direct
 
 ## Step 5 — Report
 
-When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with one line only:
+When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with the instruction below and nothing else. The restart command goes alone in a fenced `sh` block, on its own lines, so the user copies it in one selection:
 
-- "Start a new session with `codex -C '<resume directory>' <model flags> '<instruction to read <absolute path of the file written in Step 4> and resume, in the recap language>'`." The prompt argument is sent as the first message, so no second step is needed.
+- "Start a new session with:" followed by the fenced block holding `codex -C '<resume directory>' <model flags> '<instruction to read <absolute path of the file written in Step 4> and resume, in the recap language>'`. The prompt argument is sent as the first message, so no second step is needed.
 
 Append "(no handoff model for `<phase>`)" when the model flags are empty.
 
