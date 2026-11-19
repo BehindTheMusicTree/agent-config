@@ -48,7 +48,7 @@ Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git direct
 
 ## Step 5 — Report
 
-When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with the instruction below and nothing else. The restart command goes alone in a fenced `sh` block, on its own lines, so the user copies it in one selection:
+When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with only the instruction below, plus the note when it applies (after the block). A restart command (`/exit` or new-session branch) goes alone in a fenced `sh` block, on its own lines, so the user copies it in one selection; the `/clear` branch has no command and stays inline:
 
 - "Start a new session with:" followed by the fenced block holding `codex -C '<resume directory>' <model flags> '<instruction to read <absolute path of the file written in Step 4> and resume, in the recap language>'`. The prompt argument is sent as the first message, so no second step is needed.
 
