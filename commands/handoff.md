@@ -22,6 +22,12 @@ git -C <resume directory> status --short
 git -C <resume directory> worktree list
 ```
 
+Add the launch directory to that call. It is the directory the session started in and the one `/clear` returns to; a `cd` in the shell does not change it, so it can differ from the shell's current directory:
+
+```bash
+lsof -a -p "$CLAUDE_PID" -d cwd -Fn | sed -n 's/^n//p'
+```
+
 `<repo>` is the name of the repository's main checkout: the last component of the first path printed by `git -C <resume directory> worktree list`.
 
 ## Step 3 — Write the recap
@@ -46,7 +52,7 @@ Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git direct
 
 When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with one line only:
 
-- Resume directory is the current working directory: "Run `/clear`, then send `@<absolute path of the file written in Step 4>`."
-- Otherwise: "Run `/exit`, then `cd '<resume directory>' && claude`, and send `@<absolute path of the file written in Step 4>`." `/clear` keeps the working directory, so it would keep the wrong project's instructions.
+- Resume directory is the launch directory printed in Step 2: "Run `/clear`, then send `@<absolute path of the file written in Step 4>`."
+- Otherwise: "Run `/exit`, then `cd '<resume directory>' && claude`, and send `@<absolute path of the file written in Step 4>`." Use this form also when the launch directory printed nothing. `/clear` restarts in the launch directory, so it would keep the wrong project's instructions.
 
-When no file was written, print the recap as a fenced block instead, followed by "Run `/clear`, then paste the block." when the resume directory is the current working directory, otherwise by "Run `/exit`, then `cd '<resume directory>' && claude`, and paste the block."
+When no file was written, print the recap as a fenced block instead, followed by "Run `/clear`, then paste the block." when the resume directory is the launch directory, otherwise by "Run `/exit`, then `cd '<resume directory>' && claude`, and paste the block."
