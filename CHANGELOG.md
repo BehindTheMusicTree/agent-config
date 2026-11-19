@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-11-19
+
 ### Fixed
 
 - In Claude, handoff compares the resume directory with the session's launch directory instead of the shell's current directory, so a session that `cd`-ed into another checkout prints `/exit` and `cd` rather than a `/clear` that would restart in the wrong project. The restart is a single command, `cd '<resume directory>' && claude '@<recap path>'`.
