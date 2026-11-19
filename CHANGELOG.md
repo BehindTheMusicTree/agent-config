@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.7.1] - 2026-11-19
+
 ### Fixed
 
 - `new-worktree` and `new-worktree-and-serve` no longer document the removed `--plan` option, which made the setup script fail with `invalid-client`; the script now reports unknown options as `unknown-option:<opt>`.
