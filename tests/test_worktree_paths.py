@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -33,6 +34,23 @@ class WorktreePathsTests(unittest.TestCase):
             output = run(script, 'codex', 'feature/one', 'main', cwd=root)
             self.assertIn('status=blocked reason=worktree-path-exists', output)
             self.assertFalse((root / '.gitignore').exists())
+
+    def test_documented_invocation_matches_script_arguments(self):
+        repo = Path(__file__).resolve().parents[1]
+        pattern = re.compile(r'new-worktree-setup\.sh\\?"? (.*)')
+        for doc in ('commands/new-worktree.md', 'commands/new-worktree-and-serve.md',
+                    'skills/new-worktree/SKILL.md', 'skills/new-worktree-and-serve/SKILL.md'):
+            line = next(l for l in (repo / doc).read_text().splitlines() if pattern.search(l))
+            args = pattern.search(line).group(1)
+            self.assertTrue(args.startswith(('claude ', 'codex ')), f'{doc}: {args}')
+
+    def test_unknown_option_is_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'repo'
+            root.mkdir()
+            run('git', 'init', '-q', '-b', 'main', cwd=root)
+            output = run(str(SCRIPTS / 'new-worktree-setup.sh'), '--plan', 'x', 'claude', 'b', cwd=root)
+            self.assertIn('status=blocked reason=unknown-option:--plan', output)
 
     def test_setup_docs_lists_only_files_with_setup_heading(self):
         with tempfile.TemporaryDirectory() as directory:

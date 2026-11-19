@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- `new-worktree` and `new-worktree-and-serve` no longer document the removed `--plan` option, which made the setup script fail with `invalid-client`; the script now reports unknown options as `unknown-option:<opt>`.
 - The README handoff examples show `<model flags>` in the Claude and Codex restart commands.
 
 ## [3.7.0] - 2026-11-19

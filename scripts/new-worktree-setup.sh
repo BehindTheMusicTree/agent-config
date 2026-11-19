@@ -15,6 +15,7 @@ set -uo pipefail
 
 usage='usage: new-worktree-setup.sh <codex|claude> <branch-name> [<base-ref>]'
 client="${1:?$usage}"
+case "$client" in -*) echo "status=blocked reason=unknown-option:$client"; exit 0 ;; esac
 case "$client" in codex|claude) ;; *) echo "status=blocked reason=invalid-client"; exit 0 ;; esac
 branch="${2:?branch name required}"
 base_ref="${3:-}"
