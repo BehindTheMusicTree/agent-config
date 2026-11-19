@@ -54,10 +54,10 @@ Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git direct
 
 ## Step 5 — Report
 
-When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with one line only:
+When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with only the instruction below, plus the note when it applies (after the block). A restart command (`/exit` or new-session branch) goes alone in a fenced `sh` block, on its own lines, so the user copies it in one selection; the `/clear` branch has no command and stays inline:
 
 - Model flags are empty and the `launch:` and `resume:` lines of Step 2 show the same non-empty path: "Run `/clear`, then send `@<absolute path of the file written in Step 4>`."
-- Otherwise: "Run `/exit`, then `cd '<resume directory>' && claude <model flags> '@<absolute path of the file written in Step 4>'`." The prompt argument expands the `@` reference like a typed message. `/clear` restarts in the launch directory, so it would keep the wrong project's instructions, and it keeps the current model; `/model` would also save the model as the default for new sessions.
+- Otherwise: "Run `/exit`, then:" followed by the fenced block holding `cd '<resume directory>' && claude <model flags> '@<absolute path of the file written in Step 4>'`. The prompt argument expands the `@` reference like a typed message. `/clear` restarts in the launch directory, so it would keep the wrong project's instructions, and it keeps the current model; `/model` would also save the model as the default for new sessions.
 
 Append "(no handoff model for `<phase>`)" when the model flags are empty.
 
