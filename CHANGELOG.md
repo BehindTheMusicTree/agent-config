@@ -5,6 +5,7 @@
 ### Fixed
 
 - In Claude, handoff compares the resume directory with the session's launch directory instead of the shell's current directory, so a session that `cd`-ed into another checkout prints `/exit` and `cd` rather than a `/clear` that would restart in the wrong project. The restart is a single command, `cd '<resume directory>' && claude '@<recap path>'`.
+- In Codex, the handoff restart is also a single command: `codex -C '<resume directory>' '<instruction to read the recap>'` passes the read instruction as the first message.
 
 ## [3.6.1] - 2026-11-18
 
