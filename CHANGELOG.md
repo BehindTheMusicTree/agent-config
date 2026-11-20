@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Plans handed to implementation must be implementation-ready (signatures, data shapes, API calls, files to change, tests to extend, saved contract excerpts); the handoff only classifies **Following** as `implement` when its plan is, otherwise the phase is `plan`, and **Pointers** reference local plan files and saved excerpts instead of sources to fetch again.
+
 ## [3.7.1] - 2026-11-19
 
 ### Fixed
