@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### CI
+
+- Declare the canonical workflow-level `concurrency` in `lint.yml` (cancels superseded PR runs) and `release-tag.yml` (one run per commit, never cancelled, so no release bump goes untagged) (refs BehindTheMusicTree/github-config#69).
+
 ## [3.7.2] - 2026-11-21
 
 ### Fixed
