@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The Python rule is shorter and limits the Django/DRF/PostgreSQL stack preference to new backend projects (mypy's Django plugin to Django projects), so it no longer reads as a default in other Python repositories.
+
 ## [3.7.1] - 2026-11-19
 
 ### Fixed
