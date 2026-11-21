@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `create-pr` and `create-pr-and-fix-ci` now fix every confirmed `introduced` review finding, `minor` ones included, before pushing; a finding is left unfixed only when it needs a design decision or exceeds the authorized scope, with the reason in the PR body. For actionable `pre-existing` findings they propose a tracking issue, created only with approval.
+
 ### Changed
 
 - `create-pr` no longer asks whether CI enforces tests (organization settings own that), skips the changelog step in repositories managed by release-please, and reads the branch prefix check, PR template and merge method from `pr-context.py` (`--github` also queries the organization template and the allowed merge methods; an ambiguous merge method fails instead of being guessed).
