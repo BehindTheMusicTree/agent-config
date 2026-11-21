@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The Python rule is shorter and limits the Django/DRF/PostgreSQL stack preference to new backend projects (mypy's Django plugin to Django projects), so it no longer reads as a default in other Python repositories.
+
 ### CI
 
 - Declare the canonical workflow-level `concurrency` in `lint.yml` (cancels superseded PR runs) and `release-tag.yml` (one run per commit, never cancelled, so no release bump goes untagged) (refs BehindTheMusicTree/github-config#69).
