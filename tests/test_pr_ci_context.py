@@ -89,6 +89,47 @@ class PrContextTests(unittest.TestCase):
         self.assertEqual(report['base_ref'], 'base')
         self.assertEqual(report['flow'], 'gitflow')
 
+    def test_branch_prefix_and_local_template(self):
+        report = pr_context.collect(self.root, 'base', 30, [])
+        self.assertEqual(report['branch_prefix'], 'n/a')
+        self.assertEqual(report['pr_template'], {'source': 'unchecked', 'path': None})
+        self.assertIsNone(report['merge_method'])
+        (self.root / '.github').mkdir()
+        (self.root / '.github' / 'pull_request_template.md').write_text('## Summary\n')
+        self.git('update-ref', 'refs/remotes/origin/develop', 'main')
+        report = pr_context.collect(self.root, 'base', 30, [])
+        self.assertEqual(report['pr_template'], {'source': 'local', 'path': '.github/pull_request_template.md'})
+        self.assertEqual(report['branch_prefix'], 'invalid')
+        self.git('branch', '-m', 'feature', 'work')
+        self.git('switch', '-qc', 'feature/x')
+        self.assertEqual(pr_context.collect(self.root, 'base', 30, [])['branch_prefix'], 'valid')
+        self.assertEqual(pr_context.collect(self.root, 'base', 30, [], 'back-merge')['branch_prefix'], 'n/a')
+
+    def test_org_template_lookup_distinguishes_missing_from_errors(self):
+        self.git('remote', 'add', 'origin', 'git@github.com:acme/app.git')
+
+        def found(*args):
+            return ('ok', '') if args[-1].endswith('contents/pull_request_template.md') else ('missing', '')
+        with patch.object(pr_context, 'gh_api', side_effect=found):
+            template = pr_context.pr_template(self.root, True)
+        self.assertEqual(template, {'source': 'org', 'path': 'acme/.github:pull_request_template.md'})
+        with patch.object(pr_context, 'gh_api', return_value=('missing', '')):
+            self.assertEqual(pr_context.pr_template(self.root, True), {'source': 'none', 'path': None})
+        with patch.object(pr_context, 'gh_api', side_effect=ValueError('boom')):
+            with self.assertRaises(ValueError):
+                pr_context.pr_template(self.root, True)
+
+    def test_merge_method_single_documented_or_ambiguous(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/acme/app.git')
+        flags = lambda **kw: ('ok', json.dumps({'squash': False, 'merge': False, 'rebase': False, **kw}))
+        with patch.object(pr_context, 'gh_api', return_value=flags(squash=True)):
+            self.assertEqual(pr_context.merge_method(self.root), 'squash')
+        with patch.object(pr_context, 'gh_api', return_value=flags(squash=True, merge=True)):
+            with self.assertRaisesRegex(ValueError, 'ambiguous'):
+                pr_context.merge_method(self.root)
+            (self.root / 'CONTRIBUTING.md').write_text('We use a merge commit for every PR.\n')
+            self.assertEqual(pr_context.merge_method(self.root), 'merge')
+
     def test_review_request_is_not_an_automatic_risk_classification(self):
         report = pr_context.collect(self.root, 'base', 30, [], 'release', 'light')
         self.assertEqual(report['review_request'], {

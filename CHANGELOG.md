@@ -6,6 +6,21 @@
 
 - The Python rule is shorter and limits the Django/DRF/PostgreSQL stack preference to new backend projects (mypy's Django plugin to Django projects), so it no longer reads as a default in other Python repositories.
 
+### CI
+
+- Declare the canonical workflow-level `concurrency` in `lint.yml` (cancels superseded PR runs) and `release-tag.yml` (one run per commit, never cancelled, so no release bump goes untagged) (refs BehindTheMusicTree/github-config#69).
+
+## [3.7.2] - 2026-11-21
+
+### Fixed
+
+- `create-pr` and `create-pr-and-fix-ci` now fix every confirmed `introduced` review finding, `minor` ones included, before pushing; a finding is left unfixed only when it needs a design decision or exceeds the authorized scope, with the reason in the PR body. For actionable `pre-existing` findings they propose a tracking issue, created only with approval.
+
+### Changed
+
+- `create-pr` no longer asks whether CI enforces tests (organization settings own that), skips the changelog step in repositories managed by release-please, and reads the branch prefix check, PR template and merge method from `pr-context.py` (`--github` also queries the organization template and the allowed merge methods; an ambiguous merge method fails instead of being guessed).
+- Plans handed to implementation must be implementation-ready (signatures, data shapes, API calls, files to change, tests to extend, saved contract excerpts); the handoff only classifies **Following** as `implement` when its plan is, otherwise the phase is `plan`, and **Pointers** reference local plan files and saved excerpts instead of sources to fetch again.
+
 ## [3.7.1] - 2026-11-19
 
 ### Fixed
