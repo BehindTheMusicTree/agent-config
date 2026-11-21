@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.7.2] - 2026-11-21
+
 ### Fixed
 
 - `create-pr` and `create-pr-and-fix-ci` now fix every confirmed `introduced` review finding, `minor` ones included, before pushing; a finding is left unfixed only when it needs a design decision or exceeds the authorized scope, with the reason in the PR body. For actionable `pre-existing` findings they propose a tracking issue, created only with approval.
