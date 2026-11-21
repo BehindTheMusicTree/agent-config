@@ -4,6 +4,7 @@
 
 ### Changed
 
+- `create-pr` no longer asks whether CI enforces tests (organization settings own that), skips the changelog step in repositories managed by release-please, and reads the branch prefix check, PR template and merge method from `pr-context.py` (`--github` also queries the organization template and the allowed merge methods; an ambiguous merge method fails instead of being guessed).
 - Plans handed to implementation must be implementation-ready (signatures, data shapes, API calls, files to change, tests to extend, saved contract excerpts); the handoff only classifies **Following** as `implement` when its plan is, otherwise the phase is `plan`, and **Pointers** reference local plan files and saved excerpts instead of sources to fetch again.
 
 ## [3.7.1] - 2026-11-19

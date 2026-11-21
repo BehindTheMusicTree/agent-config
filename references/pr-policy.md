@@ -34,7 +34,7 @@ A specialist is not another full review of the same diff. If post-review edits i
 
 Review behavior, callers, error paths, tests and documentation. Apply depth from the actual change.
 
-**Test level.** For each non-trivial changed behavior, name the lowest test level able to observe it. A behavior that depends on real navigation, browser history, framework-managed document state or real rendering cannot be observed in a simulated DOM. If no test at that level covers it, fill the gap in this PR, including the missing level's tooling and CI job when the project does not have them yet; that decision is then taken, so the gate question in `create-pr` need not be asked again.
+**Test level.** For each non-trivial changed behavior, name the lowest test level able to observe it. A behavior that depends on real navigation, browser history, framework-managed document state or real rendering cannot be observed in a simulated DOM. If no test at that level covers it, fill the gap in this PR, including the missing level's tooling and CI job when the project does not have them yet.
 
 **Documentation.** Identify the document that owns each changed contract. If it is stale, or missing while the project documents that kind of element, update or create it in this PR.
 
@@ -63,7 +63,7 @@ Verify the released source and intended integration target from project conventi
 After `create-pr` opens or updates a PR, enable auto-merge on it unless the user opted out (`--no-auto-merge`, or any instruction not to merge).
 
 - Applies to ready, non-draft PRs of every intent, including `release`, `version-bump` and `back-merge`.
-- Run `gh pr merge <pr> --auto` with the repository's merge method: the one its contributing docs state, else `--merge` under Gitflow and `--squash` under GitHub flow. Do not pass `--delete-branch` (it breaks when the head is a trunk branch and removes a branch a worktree may still use) and never `--admin` on this call.
+- Run `gh pr merge <pr> --auto` with the `merge_method` from `pr-context.py --github` (the single method the repository allows, else the one its contributing docs state; the script fails rather than guessing). Do not pass `--delete-branch` (it breaks when the head is a trunk branch and removes a branch a worktree may still use) and never `--admin` on this call.
 - Auto-merge only completes once required checks pass. It is not a CI bypass, and a failing check still needs fixing.
 - If the repository disallows auto-merge or the call fails, report that and leave the PR open. Do not fall back to an immediate merge.
 - Read the PR back and report `autoMergeRequest` (method) or the reason it was skipped.

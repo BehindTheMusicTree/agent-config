@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -38,8 +39,76 @@ def worktree_files(output):
 def bounded(items, limit):
     return {'total': len(items), 'omitted': max(0, len(items) - limit), 'items': items[:limit]}
 
+LOCAL_TEMPLATES = ('.github/pull_request_template.md', '.github/PULL_REQUEST_TEMPLATE.md',
+                   'docs/pull_request_template.md')
+ORG_TEMPLATES = ('.github/pull_request_template.md', '.github/PULL_REQUEST_TEMPLATE.md',
+                 'pull_request_template.md', 'PULL_REQUEST_TEMPLATE.md', 'docs/pull_request_template.md')
+GITFLOW_PREFIXES = ('feature/', 'release/', 'hotfix/')
+MERGE_WORDS = {'squash': r'\bsquash', 'merge': r'\bmerge commit', 'rebase': r'\brebase and merge|\brebase merge'}
 
-def collect(root, base, limit, validation_logs, intent='change', depth='auto'):
+
+def gh_api(*args):
+    """Return (status, text); 'missing' means HTTP 404, any other failure raises."""
+    result = subprocess.run(['gh', 'api', *args], capture_output=True, text=True, check=False, timeout=60)
+    if result.returncode == 0:
+        return 'ok', result.stdout
+    if 'HTTP 404' in result.stderr:
+        return 'missing', ''
+    raise ValueError(f'gh api {args[-1]} failed: {result.stderr.strip()}')
+
+
+def owner_repo(root):
+    url = git(root, 'remote', 'get-url', 'origin').strip()
+    match = re.search(r'[:/]([^/:]+)/([^/]+?)(?:\.git)?$', url)
+    if not match:
+        raise ValueError(f'Cannot read owner/repo from origin URL: {url}')
+    return match.group(1), match.group(2)
+
+
+def pr_template(root, github):
+    candidates = [p for p in LOCAL_TEMPLATES if (root / p).is_file()]
+    directory = root / '.github' / 'PULL_REQUEST_TEMPLATE'
+    if directory.is_dir():
+        candidates += sorted(str(p.relative_to(root)) for p in directory.glob('*.md'))
+    if candidates:
+        return {'source': 'local', 'path': candidates[0]}
+    if not github:
+        return {'source': 'unchecked', 'path': None}
+    owner, _ = owner_repo(root)
+    for path in ORG_TEMPLATES:
+        status, _ = gh_api('-H', 'Accept: application/vnd.github.raw+json', f'repos/{owner}/.github/contents/{path}')
+        if status == 'ok':
+            return {'source': 'org', 'path': f'{owner}/.github:{path}'}
+    status, listing = gh_api(f'repos/{owner}/.github/contents/.github/PULL_REQUEST_TEMPLATE')
+    if status == 'ok':
+        names = sorted(item['name'] for item in json.loads(listing) if item['name'].endswith('.md'))
+        if names:
+            return {'source': 'org', 'path': f'{owner}/.github:.github/PULL_REQUEST_TEMPLATE/{names[0]}'}
+    return {'source': 'none', 'path': None}
+
+
+def merge_method(root):
+    owner, repo = owner_repo(root)
+    _, text = gh_api(f'repos/{owner}/{repo}', '--jq',
+                     '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}')
+    allowed = [name for name, enabled in json.loads(text).items() if enabled]
+    if len(allowed) == 1:
+        return allowed[0]
+    docs = ' '.join(p.read_text(errors='replace').lower() for p in root.glob('CONTRIBUTING*') if p.is_file())
+    stated = [name for name in allowed if re.search(MERGE_WORDS[name], docs)]
+    if len(stated) == 1:
+        return stated[0]
+    raise ValueError(f'Merge method is ambiguous (allowed: {", ".join(allowed) or "none"}); '
+                     'state it in the contributing docs')
+
+
+def branch_prefix(flow, branch, intent):
+    if flow != 'gitflow' or intent == 'back-merge':
+        return 'n/a'
+    return 'valid' if branch and branch.startswith(GITFLOW_PREFIXES) else 'invalid'
+
+
+def collect(root, base, limit, validation_logs, intent='change', depth='auto', github=False):
     root = Path(git(root, 'rev-parse', '--show-toplevel').strip())
     result = subprocess.run(
         ['bash', str(Path(__file__).with_name('detect-branch-model.sh'))], cwd=root,
@@ -72,8 +141,12 @@ def collect(root, base, limit, validation_logs, intent='change', depth='auto'):
         git(root, 'status', '--porcelain=v1', '-z', '--untracked-files=normal')
     ) != worktree:
         raise ValueError('Repository changed during collection; retry on a stable worktree')
+    branch = git(root, 'branch', '--show-current').strip() or None
     return {
-        'repository': str(root), 'branch': git(root, 'branch', '--show-current').strip() or None,
+        'repository': str(root), 'branch': branch,
+        'branch_prefix': branch_prefix(flow, branch, intent),
+        'pr_template': pr_template(root, github),
+        'merge_method': merge_method(root) if github else None,
         'flow': flow, 'base_ref': base, 'base_sha': base_sha, 'merge_base': merge_base, 'head_sha': head,
         'review_request': {'intent': intent, 'depth': depth, 'classification': 'requires_hunk_review'},
         'commits': bounded(commits, limit), 'files': bounded(files, limit),
@@ -94,12 +167,14 @@ def main():
                         default='change', help='PR purpose; does not classify risk automatically.')
     parser.add_argument('--depth', choices=('auto', 'light', 'standard', 'deep'), default='auto',
                         help='Requested review depth; apply the shared policy after inspecting hunks.')
+    parser.add_argument('--github', action='store_true',
+                        help='Also query GitHub (read-only): organization PR template and allowed merge method.')
     args = parser.parse_args()
     if not 1 <= args.limit <= 100:
         parser.error('--limit must be between 1 and 100')
     try:
         sys.stdout.write(json.dumps(collect(args.repo, args.base, args.limit, args.validation_log,
-                                          args.intent, args.depth), indent=2) + '\n')
+                                          args.intent, args.depth, args.github), indent=2) + '\n')
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         sys.stderr.write(f'pr-context: {exc}\n')
         return 1
