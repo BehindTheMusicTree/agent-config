@@ -322,6 +322,60 @@ class CleanReposTests(unittest.TestCase):
         self.assertIn('reason=caller-worktree', output)
         self.assertTrue(self.remote_has(branch))
 
+    def test_nested_caller_keeps_only_its_own_remote(self):
+        primary_branch = 'feature/primary'
+        caller_branch = 'feature/caller'
+        primary_linked = self.add_worktree(primary_branch, merged=True)
+        caller = self.add_worktree(caller_branch, merged=True)
+        git(self.repo, 'worktree', 'remove', str(primary_linked))
+        git(self.repo, 'switch', primary_branch)
+        output = self.run_as_codex(caller, 'apply', '--remote-only')
+        self.assertIn(f'keep-worktree={caller} branch={caller_branch} reason=caller-worktree', output)
+        self.assertIn(f'deleted-remote={primary_branch}', output)
+        self.assertFalse(self.remote_has(primary_branch))
+        self.assertTrue(self.remote_has(caller_branch))
+
+    def test_new_cwd_only_agent_during_remote_recheck_keeps_branch(self):
+        branch = 'feature/late'
+        path = self.add_worktree(branch, merged=True)
+        trigger = self.bin / 'trigger'
+        ready = self.bin / 'ready'
+        stub = self.bin / 'codex'
+        stub.write_text(f'#!/usr/bin/env bash\ntouch "{ready}"\nsleep 300; true\n')
+        stub.chmod(0o755)
+        launcher = self.bin / 'launch-late-agent'
+        launcher.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'until [[ -e "{trigger}" ]]; do sleep 0.05; done\n'
+            f'cd "{path}" && "{stub}"\n'
+        )
+        launcher.chmod(0o755)
+        proc = subprocess.Popen([str(launcher)], cwd=self.root, start_new_session=True)
+        self.procs.append(proc)
+        first_probe = self.bin / 'first-probe'
+        real_lsof = shutil.which('lsof')
+        self.assertIsNotNone(real_lsof)
+        shim = self.bin / 'lsof'
+        shim.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'if [[ ! -e "{first_probe}" ]]; then\n'
+            f'  touch "{first_probe}"; exec "{real_lsof}" "$@"\n'
+            f'fi\n'
+            f'snapshot="$("{real_lsof}" "$@")" || exit\n'
+            f'touch "{trigger}"\n'
+            f'for _ in {{1..100}}; do\n'
+            f'  if [[ -e "{ready}" ]]; then printf \'%s\\n\' "$snapshot"; exit; fi\n'
+            f'  sleep 0.05\n'
+            f'done\n'
+            f'exit 2\n'
+        )
+        shim.chmod(0o755)
+        output = self.run_script('apply', '--remote-only')
+        self.assertTrue(ready.exists())
+        self.assertIn(f'skip-remote={branch} reason=agent-session', output)
+        self.assertTrue(self.remote_has(branch))
+        self.assertIsNone(proc.poll())
+
     def test_removes_merged_worktree_with_colon_in_path(self):
         branch = 'feature/colon'
         path = self.add_worktree(branch, merged=True, slug='feature:colon')

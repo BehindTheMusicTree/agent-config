@@ -261,12 +261,20 @@ startup_chain() {
     }'
 }
 
-# One classification for reporting, idle checks and signaling. A leftover
-# record contains a PID and its start time for the TERM-to-KILL comparison.
-classify_worktree_processes() {
-  local path="$1" physical table cwd_records err
+observe_worktree_processes() {
+  local path="$1" physical previous table cwd_records err child nested=""
   [[ -n "$original_chain" ]] && command -v lsof >/dev/null 2>&1 || { echo unknown; return; }
   physical="$(canonical_path "$path")"
+  if [[ "$path" == "$repo" ]]; then
+    for child in "${worktree_paths[@]}" "${detached_paths[@]}"; do
+      if [[ "$child" == "$path/"* ]]; then
+        nested+="$child"$'\n'"$physical${child#"$path"}"$'\n'
+      elif [[ "$child" == "$physical/"* ]]; then
+        nested+="$child"$'\n'"$path${child#"$physical"}"$'\n'
+      fi
+    done
+  fi
+  previous="$(ps -axo pid= 2>/dev/null)" && [[ -n "$previous" ]] || { echo unknown; return; }
   err="$(mktemp)" || { echo unknown; return; }
   if ! cwd_records="$(lsof -a -d cwd -Fpn 2>"$err")" || [[ -s "$err" || -z "$cwd_records" ]]; then
     rm -f "$err"
@@ -278,16 +286,28 @@ classify_worktree_processes() {
   table="$(LC_ALL=C ps -ww -axo pid=,ppid=,stat=,lstart=,command= 2>/dev/null)" && [[ -n "$table" ]] \
     || { echo unknown; return; }
 
-  if ! printf '%s\n' "$table" '@cwd' "$cwd_records" | WT_PATH="$path" WT_REAL="$physical" \
-    WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" awk -v self="$$" -v q="'" '
-    function inside(n, p) { return n == p || index(n, p "/") == 1 }
+  if ! printf '%s\n' "$previous" '@ps' "$table" '@cwd' "$cwd_records" | WT_PATH="$path" WT_REAL="$physical" \
+    WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" WT_NESTED="$nested" awk -v self="$$" -v q="'" '
+    function inside(n, p,    i) {
+      if (!(n == p || index(n, p "/") == 1)) return 0
+      for (i in child) if (child[i] != "" && (n == child[i] || index(n, child[i] "/") == 1)) return 0
+      return 1
+    }
+    function path_end(c) { return c == "" || index("/ \t\"" q, c) > 0 }
+    function in_nested_arg(line,    i, p) {
+      for (i in child) {
+        p = child[i]
+        if (p != "" && index(line, p) == 1 && path_end(substr(line, length(p) + 1, 1))) return 1
+      }
+      return 0
+    }
     function mentions(line, p,    i, before, after) {
       before = ""
       while ((i = index(line, p)) > 0) {
         if (i > 1) before = substr(line, i - 1, 1)
         after = substr(line, i + length(p), 1)
         if ((before == "" || index(" =:\"" q, before) > 0) &&
-            (after == "" || index("/ \t\"" q, after) > 0)) return 1
+            path_end(after) && !in_nested_arg(substr(line, i))) return 1
         before = substr(line, i, 1)
         line = substr(line, i + 1)
       }
@@ -305,9 +325,12 @@ classify_worktree_processes() {
       path = ENVIRON["WT_PATH"]; real = ENVIRON["WT_REAL"]
       n = split(ENVIRON["WT_CHAIN"], chain, "\n")
       for (i = 1; i <= n; i++) own[chain[i]] = 1
+      split(ENVIRON["WT_NESTED"], child, "\n")
     }
-    $0 == "@cwd" { cwd = 1; next }
-    !cwd {
+    $0 == "@ps" { phase = 1; next }
+    $0 == "@cwd" { phase = 2; next }
+    phase == 0 { previous[$1] = 1; next }
+    phase == 1 {
       if (NF < 9 || $1 !~ /^[1-9][0-9]*$/ || $2 !~ /^[0-9]+$/ || $7 !~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/) {
         invalid = 1
         next
@@ -324,7 +347,7 @@ classify_worktree_processes() {
     }
     /^p[1-9][0-9]*$/ { pid = substr($0, 2); next }
     /^n/ && pid {
-      cwd_seen = 1
+      cwd_seen = 1; observed_cwd[pid] = 1
       dir = substr($0, 2)
       if (inside(dir, real) || (path != real && inside(dir, path))) cwd_match[pid] = 1
     }
@@ -334,21 +357,31 @@ classify_worktree_processes() {
         if (!(p in parent) || seen[p]++) exit 1
         own[p] = 1
       }
-      for (p in cwd_match) if (!(p in parent)) exit 1
       caller = inside(ENVIRON["WT_ENTRY"], real)
       for (pid in live) {
-        if (!live[pid] || !(argv_match[pid] || cwd_match[pid])) continue
+        if (!live[pid]) continue
+        matches = argv_match[pid] || cwd_match[pid]
         if (pid in own) {
-          caller = 1
+          if (pid != self && matches) caller = 1
           continue
         }
+        # A new process with an independent agent ancestor may have been
+        # created after lsof collected cwd records. Its cwd is unknown.
+        if (!matches && (pid in previous || pid in observed_cwd)) continue
         hops = 0
         for (p = pid; p != 0 && !(p in own); p = parent[p]) {
-          if (!(p in parent) || ++hops > count) exit 1
+          if (!(p in parent) || ++hops > count) {
+            if (matches) exit 1
+            break
+          }
           a = agent(command[p])
-          if (a != "") { print "agent\t" pid ":" a; break }
+          if (a != "") {
+            if (matches) print "agent\t" pid ":" a
+            else { print "refresh"; exit }
+            break
+          }
         }
-        if (p == self || (!(p in own) && p != 0)) continue
+        if (!matches || p == self || (!(p in own) && p != 0)) continue
         if (argv_match[pid]) print "leftover\t" pid "\t" started[pid]
         else print "busy\t" pid
       }
@@ -356,6 +389,20 @@ classify_worktree_processes() {
     }'; then
     echo unknown
   fi
+}
+
+# One classification for reporting, idle checks and signaling. A leftover
+# record contains a PID and its start time for the TERM-to-KILL comparison.
+classify_worktree_processes() {
+  local attempt state
+  for attempt in 1 2 3; do
+    state="$(observe_worktree_processes "$1")"
+    if [[ $'\n'"$state"$'\n' != *$'\nrefresh\n'* ]]; then
+      printf '%s\n' "$state"
+      return
+    fi
+  done
+  echo unknown
 }
 
 process_keep_reason() {
@@ -682,16 +729,6 @@ read_worktrees() {
     fi
   done <<< "$list"
 
-}
-
-branch_worktree_paths() {
-  local branch="$1" i
-  read_worktrees || return 1
-  for i in "${!worktree_branches[@]}"; do
-    if [[ "${worktree_branches[$i]}" == "$branch" ]]; then
-      printf '%s\n' "${worktree_paths[$i]}"
-    fi
-  done
 }
 
 original_chain="$(startup_chain)" || original_chain=""
@@ -1231,20 +1268,22 @@ for repo in "$git_root"/*/; do
     fi
     for b in "${kept_remote[@]}"; do
       [[ -z "${late_protected[$b]:-}" ]] || continue
-      if ! paths="$(branch_worktree_paths "$b")"; then
+      if ! read_worktrees; then
         echo "repo=$name skip-remote=$b reason=worktree-list-failed"
         skipped=$((skipped + 1))
         continue
       fi
-      while IFS= read -r path; do
-        [[ -n "$path" && -d "$path" ]] || continue
+      for i in "${!worktree_branches[@]}"; do
+        [[ "${worktree_branches[$i]}" == "$b" ]] || continue
+        path="${worktree_paths[$i]}"
+        [[ -d "$path" ]] || continue
         reason="$(process_keep_reason "$(classify_worktree_processes "$path")")"
         if [[ -n "$reason" ]]; then
           echo "repo=$name skip-remote=$b reason=$reason"
           skipped=$((skipped + 1))
           continue 2
         fi
-      done <<< "$paths"
+      done
       if git push origin --delete "$b" >/dev/null 2>&1; then
         echo "repo=$name deleted-remote=$b"
         deleted_remote=$((deleted_remote + 1))
