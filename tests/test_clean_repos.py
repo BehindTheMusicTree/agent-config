@@ -205,7 +205,7 @@ class CleanReposTests(unittest.TestCase):
         sibling_proc = self.start_process(sibling)
 
         scan = self.run_script('scan')
-        self.assertIn(f'running-processes (will be killed on apply): {target}: {target_proc.pid} \n', scan)
+        self.assertIn(f'running-processes (will be killed on apply): {target}: {target_proc.pid}:bash \n', scan)
         self.assertNotIn(str(sibling_proc.pid), scan)
 
         output = self.run_script('apply')
@@ -214,6 +214,64 @@ class CleanReposTests(unittest.TestCase):
         self.assertIsNotNone(target_proc.wait(timeout=10))
         self.assertIsNone(sibling_proc.poll())
         self.assertTrue(sibling.exists())
+
+    def agent_stub(self, name):
+        stub = self.bin / name
+        stub.write_text('#!/usr/bin/env bash\nif [[ "${1:-}" == "--run" ]]; then shift; "$@"; exit $?; fi\nsleep 300; true\n')
+        stub.chmod(0o755)
+        return stub
+
+    def start_agent(self, name, cwd, *args):
+        proc = subprocess.Popen([str(self.agent_stub(name)), *args], cwd=cwd, start_new_session=True)
+        self.procs.append(proc)
+        time.sleep(0.3)
+        return proc
+
+    def assert_session_kept(self, path, branch, proc):
+        scan = self.run_script('scan')
+        self.assertIn('agent-session', scan)
+        self.assertIn(f'{path}:{branch}', scan)
+        self.assertNotIn('running-processes', scan)
+        output = self.run_script('apply', GH_OPEN_BRANCHES='')
+        self.assertIn(f'keep-worktree={path} branch={branch} reason=agent-session', output)
+        self.assertNotIn('killed-processes', output)
+        self.assertIsNone(proc.poll())
+        self.assertTrue(path.exists())
+        self.assertTrue(self.branch_exists(branch))
+        self.assertTrue(self.remote_has(branch))
+
+    def test_keeps_worktree_of_claude_started_from_its_cwd(self):
+        path = self.add_worktree('feature/a', merged=True)
+        self.assert_session_kept(path, 'feature/a', self.start_agent('claude', path))
+
+    def test_keeps_worktree_of_codex_with_path_in_argv(self):
+        path = self.add_worktree('feature/a', merged=True)
+        self.assert_session_kept(path, 'feature/a', self.start_agent('codex', self.root, '--cd', str(path)))
+
+    def test_keeps_worktree_whose_process_descends_from_an_agent(self):
+        path = self.add_worktree('feature/a', merged=True)
+        proc = self.start_agent('claude', self.root, '--run', 'bash', '-c', 'sleep 300; true', 'child', str(path))
+        self.assert_session_kept(path, 'feature/a', proc)
+
+    def test_agent_running_the_script_does_not_protect_its_own_worktree(self):
+        path = self.add_worktree('feature/a', merged=True)
+        stub = self.agent_stub('claude')
+        result = subprocess.run(
+            [str(stub), '--run', shutil.which('bash'), str(SCRIPT), 'apply', str(self.root)],
+            cwd=path, text=True, capture_output=True,
+            env={**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'GH_OPEN_BRANCHES': ''})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f'removed-worktree={path}', result.stdout)
+        self.assertFalse(path.exists())
+
+    def test_keeps_worktree_when_ps_fails(self):
+        path = self.add_worktree('feature/a', merged=True)
+        ps = self.bin / 'ps'
+        ps.write_text('#!/usr/bin/env bash\nexit 1\n')
+        ps.chmod(0o755)
+        output = self.run_script('apply', GH_OPEN_BRANCHES='')
+        self.assertIn('reason=agent-session', output)
+        self.assertTrue(path.exists())
 
     def test_reports_no_processes_for_an_idle_worktree(self):
         self.add_worktree('feature/a', merged=True)

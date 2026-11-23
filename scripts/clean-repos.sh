@@ -9,6 +9,12 @@
 # full inventory, but nothing in that category is removed unless it is proven
 # equivalent to trunk (see --remove-equivalent).
 #
+# A worktree where a claude or codex session runs (the agent, or an ancestor of a
+# process using the worktree, by argv path or cwd) is kept whole with its
+# branches and processes (agent-session). Only without an agent are the other
+# processes treated as leftovers and killed. The caller's own ancestors are
+# ignored, so a session can still clean its own worktree.
+#
 # Usage:
 #   clean-repos.sh scan  [git-root] [options]
 #   clean-repos.sh apply [git-root] [options]
@@ -257,6 +263,55 @@ worktree_pids() {
         line = substr(line, i + 1)
         offset += i
       }
+    }'
+}
+
+# Live claude/codex sessions using this worktree, as `pid:agent` lines. A process
+# counts when it mentions the path in argv or has its cwd inside it (a session
+# started by `cd <wt> && claude` never shows the path), and an agent is itself or
+# any ancestor whose executable is claude/codex. The ancestors of this script are
+# ignored so the session that runs the cleanup does not protect its own worktree.
+# Fail closed (`?:unknown`) when ps/lsof cannot answer.
+worktree_agent_pids() {
+  local path="$1" table cwd_pids err out
+  table="$(ps -axo pid=,ppid=,command= 2>/dev/null)" && [[ -n "$table" ]] || { echo "?:unknown"; return; }
+  command -v lsof >/dev/null 2>&1 || { echo "?:unknown"; return; }
+  err="$(mktemp)" || { echo "?:unknown"; return; }
+  out="$(lsof -a -d cwd -Fpn 2>"$err")"
+  if [[ -s "$err" ]]; then rm -f "$err"; echo "?:unknown"; return; fi
+  rm -f "$err"
+  cwd_pids="$(printf '%s\n' "$out" | WT_PATH="$path" awk '
+    BEGIN { p = ENVIRON["WT_PATH"] }
+    /^p/ { pid = substr($0, 2); next }
+    /^n/ { n = substr($0, 2); if (n == p || index(n, p "/") == 1) print pid }')"
+  {
+    worktree_pids "$path"
+    printf '%s\n' "$cwd_pids"
+  } | sort -u | WT_TABLE="$table" SELF="$$" awk '
+    function agent(cmd,   n, a, i, b) {
+      n = split(cmd, a, " ")
+      for (i = 1; i <= 2 && i <= n; i++) {
+        b = a[i]; sub(/.*\//, "", b)
+        if (b == "claude" || b == "codex") return b
+      }
+      return ""
+    }
+    BEGIN {
+      n = split(ENVIRON["WT_TABLE"], rows, "\n")
+      for (i = 1; i <= n; i++) {
+        if (split(rows[i], f, " ") < 3) continue
+        pid = f[1]; ppid[pid] = f[2]
+        cmd = rows[i]; sub(/^ *[0-9]+ +[0-9]+ +/, "", cmd); cmdl[pid] = cmd
+      }
+      for (p = ENVIRON["SELF"]; p != "" && p != 0 && !(p in own); p = ppid[p]) own[p] = 1
+    }
+    $1 != "" && !($1 in own) {
+      for (p = $1; p != "" && p != 0 && ++guard < 200; p = ppid[p]) {
+        if (p in own) break
+        a = agent(cmdl[p])
+        if (a != "") { print $1 ":" a; break }
+      }
+      guard = 0
     }'
 }
 
@@ -707,6 +762,9 @@ for repo in "$git_root"/*/; do
   dirty_reasons=()
   new_empty_worktrees=()
   stale_empty_worktrees=()
+  active_worktrees=()
+  active_details=()
+  active_branches=()
   protected_branches=()
   for i in "${!worktree_branches[@]}"; do
     br="${worktree_branches[$i]}"
@@ -725,8 +783,19 @@ for repo in "$git_root"/*/; do
         new_empty_worktrees+=("$path:$br")
       fi
       protected_branches+=("$br")
+    elif agents="$(worktree_agent_pids "$path")" && [[ -n "$agents" ]]; then
+      active_worktrees+=("$path:$br")
+      active_branches+=("$br")
+      active_details+=("$(printf '%s' "$agents" | tr '\n' ' ' | sed 's/ $//')")
+      protected_branches+=("$br")
     fi
   done
+  if [[ ${#active_branches[@]} -gt 0 ]]; then
+    # Deleting the remote branch of a live session would break its next push.
+    tmp=()
+    for b in "${kept_remote[@]}"; do contains "$b" "${active_branches[@]}" || tmp+=("$b"); done
+    kept_remote=("${tmp[@]}")
+  fi
   if [[ ${#protected_branches[@]} -gt 0 ]]; then
     tmp=()
     for b in "${kept_local[@]}"; do contains "$b" "${protected_branches[@]}" || tmp+=("$b"); done
@@ -810,6 +879,7 @@ for repo in "$git_root"/*/; do
   if [[ ${#kept_local[@]} -eq 0 && ${#kept_local_squash_verified[@]} -eq 0 \
         && ${#kept_local_squash_unverified[@]} -eq 0 && ${#kept_remote[@]} -eq 0 \
         && ${#worktree_removals[@]} -eq 0 && ${#dirty_worktrees[@]} -eq 0 \
+        && ${#active_worktrees[@]} -eq 0 \
         && ${#new_empty_worktrees[@]} -eq 0 && ${#stale_empty_worktrees[@]} -eq 0 \
         && ${#unmerged_worktrees[@]} -eq 0 && ${#equivalent_worktrees[@]} -eq 0 \
         && ${#handoff_removals[@]} -eq 0 ]] \
@@ -828,8 +898,11 @@ for repo in "$git_root"/*/; do
     [[ ${#kept_remote[@]} -gt 0 ]] && echo "  remote: ${kept_remote[*]}"
     [[ ${#worktree_removals[@]} -gt 0 ]] && echo "  worktrees: ${worktree_removals[*]}"
     for wt in "${worktree_removals[@]}"; do
-      pids="$(worktree_pids "${wt%%:*}" | tr '\n' ' ')"
+      pids="$(worktree_pids "${wt%%:*}" | while read -r p; do printf '%s:%s ' "$p" "$(ps -o comm= -p "$p" 2>/dev/null | sed 's|.*/||')"; done)"
       [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%%:*}: $pids"
+    done
+    for i in "${!active_worktrees[@]}"; do
+      echo "  agent-session (claude/codex running in it, worktree and branch kept, not touched): ${active_worktrees[$i]} [pid:agent=${active_details[$i]}]"
     done
     for i in "${!dirty_worktrees[@]}"; do
       echo "  dirty-worktree (uncommitted changes, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
@@ -875,6 +948,12 @@ for repo in "$git_root"/*/; do
     done
     for wt in "${worktree_removals[@]}"; do
       path="${wt%%:*}"
+      # An agent may have started since the scan: keep everything then.
+      if [[ -n "$(worktree_agent_pids "$path")" ]]; then
+        echo "repo=$name skip-worktree=$path branch=${wt#*:} reason=agent-session"
+        skipped=$((skipped + 1))
+        continue
+      fi
       pids="$(worktree_pids "$path" | tr '\n' ' ')"
       if [[ -n "${pids// /}" ]]; then
         # shellcheck disable=SC2086
@@ -923,6 +1002,11 @@ for repo in "$git_root"/*/; do
         echo "repo=$name skip-local=$br reason=delete-failed"
         skipped=$((skipped + 1))
       fi
+    done
+    for i in "${!active_worktrees[@]}"; do
+      aw="${active_worktrees[$i]}"
+      echo "repo=$name keep-worktree=${aw%%:*} branch=${aw#*:} reason=agent-session [${active_details[$i]}]"
+      skipped=$((skipped + 1))
     done
     for i in "${!dirty_worktrees[@]}"; do
       dw="${dirty_worktrees[$i]}"
