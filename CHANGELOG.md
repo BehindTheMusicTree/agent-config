@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `clean-repos` no longer removes a merged worktree where a claude or codex session runs (detected by cwd, argv path or agent ancestor): the worktree, its branches and its processes are kept (`agent-session`). The session that runs the cleanup is ignored, so `cleanup-session` still removes its own worktree.
+
 ### Changed
 
 - The Python rule is shorter and limits the Django/DRF/PostgreSQL stack preference to new backend projects (mypy's Django plugin to Django projects), so it no longer reads as a default in other Python repositories.
