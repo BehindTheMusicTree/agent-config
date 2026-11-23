@@ -38,6 +38,7 @@ Prints one block per repo with candidates (clean repos are silent), then a `summ
 - `running-processes:` — non-agent leftover processes (`pid:comm`) started from a worktree that `apply` will kill before removing it.
 - `agent-session:` — a claude/codex session runs in the worktree (by cwd or argv path, or as an ancestor of a process using it). Worktree, branches (local and remote) and processes are kept whole (`reason=agent-session`, counted in `skipped=`, also if the agent appears between scan and apply). `running-processes` never holds such a session. The caller and its ancestor chain are never signaled.
 - `caller-worktree:` — the caller uses the worktree. The worktree and its branch are kept unless the user explicitly requests `--remove-caller-worktree`. Pass that flag to both scan and apply. The usual merge, clean-worktree, and agent-session checks still apply. After opting in, run subsequent commands from a surviving directory.
+- `process-churn:` — cwd observation remained incomplete after bounded retries. The worktree and its local and remote branches are kept. Retry once process activity settles.
 - `open-prs-unknown` — `gh` could not list open PRs, so remote deletion is skipped for that repo (deleting a PR's branch closes it).
 
 ## Step 2 — Confirm
@@ -50,7 +51,7 @@ Show the candidates grouped by repo and wait for explicit confirmation. Remote d
 "$SKILL_REPO_ROOT/scripts/clean-repos.sh" apply "$HOME/git" [same flags] > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?" >> "$cleanup_log_dir/apply.txt"
 ```
 
-`apply` re-derives candidates fresh (new fetch, new merge check) and removes worktrees before their branch. It uses `git branch -D` only after confirming the branch is an ancestor of `origin/<trunk>` or that its content is already on trunk. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`, `caller-worktree`, `agent-session`, `processes-changed`, `delete-failed`, `push-delete-failed`, `stale-empty-changed` or `open-prs-unknown` — relay them, don't override.
+`apply` re-derives candidates fresh (new fetch, new merge check) and removes worktrees before their branch. It uses `git branch -D` only after confirming the branch is an ancestor of `origin/<trunk>` or that its content is already on trunk. Skips are reported as `not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `remove-failed`, `caller-worktree`, `agent-session`, `process-churn`, `processes-changed`, `delete-failed`, `push-delete-failed`, `stale-empty-changed` or `open-prs-unknown` — relay them, don't override.
 
 ## Output format
 
