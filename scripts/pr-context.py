@@ -103,8 +103,10 @@ def merge_method(root):
 
 
 RELEASE_PLEASE_FILES = ('release-please-config.json', '.release-please-manifest.json')
-RELEASE_PLEASE_USES = re.compile(r'^\s*(?:-\s+)?uses:\s*["\']?[^\s"\'#]*release-please', re.M)
-AUTO_MERGE_TRUE = re.compile(r'^\s*auto-merge:\s*["\']?true["\']?\s*(?:#.*)?$', re.M)
+# A job-level call of a reusable release-please workflow; such a job has no steps, so an
+# auto-merge input in the same job block is that call's input.
+RELEASE_PLEASE_USES = re.compile(r'^\s*uses:\s*["\']?[^\s"\'#]*/release-please\.ya?ml@', re.M)
+AUTO_MERGE_TRUE = re.compile(r'(?:^\s*|[{,]\s*)auto-merge:\s*["\']?(?:true|True|TRUE)\b', re.M)
 
 
 def job_blocks(text):
@@ -132,10 +134,10 @@ def job_blocks(text):
 
 def release_please(root, base_sha):
     """Read release-please setup from the base commit: none, manual, or auto_merge."""
-    present = git(root, 'ls-tree', '--name-only', base_sha, '--', *RELEASE_PLEASE_FILES).split()
+    present = git(root, 'ls-tree', '-z', '--name-only', base_sha, '--', *RELEASE_PLEASE_FILES).strip('\0')
     if not present:
         return 'none'
-    workflows = [p for p in git(root, 'ls-tree', '--name-only', base_sha, '--', '.github/workflows/').splitlines()
+    workflows = [p for p in git(root, 'ls-tree', '-z', '--name-only', base_sha, '--', '.github/workflows/').split('\0')
                  if p.endswith(('.yml', '.yaml'))]
     for path in workflows:
         raw = git(root, 'show', f'{base_sha}:{path}')

@@ -116,5 +116,5 @@ Don't print the body.
 5. Tests/docs added, if any
 6. **PR URL**
 7. Auto-merge: enabled (method) or skipped (reason)
-8. Expected release: `vX.Y.Z` when `release_please` is `auto_merge`, otherwise none
+8. Expected release: `vX.Y.Z` when `release_please` is `auto_merge` and the title type is releasable, otherwise none
 9. Intent/depth, review findings, validation evidence reused/run, and remaining limitations

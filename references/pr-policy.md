@@ -71,10 +71,10 @@ After `create-pr` opens or updates a PR, enable auto-merge on it unless the user
 
 ## Release-please repositories
 
-`pr-context.py` reports `release_please` from the base commit: `none` (no release-please config or manifest), `manual` (configured, but no workflow job both calls release-please and sets `auto-merge: true`) or `auto_merge`. The workflow check is a text heuristic over job blocks, not a YAML evaluation; the organization's release configuration owns the actual mechanics.
+`pr-context.py` reports `release_please` from the base commit: `none` (no release-please config or manifest at the repository root), `manual` (configured, but no workflow job both calls a reusable `release-please.yml` and passes `auto-merge: true`) or `auto_merge`. The workflow check is a text heuristic over job blocks, not a YAML evaluation: an auto-merge passed through an expression reads as `manual`. The organization's release configuration owns the actual mechanics.
 
 - `manual` and `auto_merge`: the PR title sets the changelog entry and the version (`feat` minor, `fix` patch, `!` breaking). Choose it from the effect on users, not from the type of the last commit.
-- `auto_merge`: merging this PR starts a release. Report the expected version. CI merges the release PR; if its auto-merge fails, **Auto-merge** applies: do not fall back to an immediate merge.
+- `auto_merge`: merging a PR whose title type is releasable starts a release. Report the expected version from the manifest and every unreleased change since the last release, not this title alone; another type releases nothing and is reported as no release. CI merges the release PR; if its auto-merge fails, **Auto-merge** applies: do not fall back to an immediate merge.
 - `none`: do not announce a release.
 
 ## Handoff and reuse

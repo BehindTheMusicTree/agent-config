@@ -176,6 +176,20 @@ class PrContextTests(unittest.TestCase):
             'release-please-config.json': '{}', '.github/workflows/publish.yaml': workflow,
         }), 'manual')
 
+    def test_release_please_flow_mapping_and_quoted_filename(self):
+        workflow = self.RELEASE_JOB.format(other='', release='').replace('    with:\n', '    with: { auto-merge: true }\n')
+        self.assertEqual(self.release_mode({
+            'release-please-config.json': '{}', '.github/workflows/déploi ement.yml': workflow,
+        }), 'auto_merge')
+
+    def test_release_please_other_action_with_stray_auto_merge_is_manual(self):
+        workflow = ('jobs:\n  notify:\n    runs-on: ubuntu-latest\n    steps:\n'
+                    '      - uses: acme/release-please-notify@v1\n'
+                    '      - uses: acme/merge@v1\n        with:\n          auto-merge: true\n')
+        self.assertEqual(self.release_mode({
+            'release-please-config.json': '{}', '.github/workflows/notify.yml': workflow,
+        }), 'manual')
+
     def test_release_please_reads_base_not_worktree(self):
         workflow = self.RELEASE_JOB.format(other='', release='      auto-merge: true\n')
         self.release_mode({'release-please-config.json': '{}', '.github/workflows/publish.yml': workflow})
