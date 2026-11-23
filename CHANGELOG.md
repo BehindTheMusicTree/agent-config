@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.8.1] - 2026-11-23
+
 ### Fixed
 
 - Cleanup preserves the calling process and its ancestors during worktree removal. The caller’s active worktree is kept by default and can be removed with `--remove-caller-worktree`.
