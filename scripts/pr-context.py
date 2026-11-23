@@ -105,7 +105,7 @@ def merge_method(root):
 RELEASE_PLEASE_FILES = ('release-please-config.json', '.release-please-manifest.json')
 # A job-level call of a reusable release-please workflow; such a job has no steps, so an
 # auto-merge input in the same job block is that call's input.
-RELEASE_PLEASE_USES = re.compile(r'^\s*uses:\s*["\']?[^\s"\'#]*/release-please\.ya?ml@', re.M)
+RELEASE_PLEASE_USES = re.compile(r'^\s*uses:\s*["\']?[^\s"\'#]*/release-please\.ya?ml(?:@|\s|$|["\'])', re.M)
 AUTO_MERGE_TRUE = re.compile(r'(?:^\s*|[{,]\s*)auto-merge:\s*["\']?(?:true|True|TRUE)\b', re.M)
 
 

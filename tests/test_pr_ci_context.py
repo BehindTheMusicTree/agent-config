@@ -176,10 +176,38 @@ class PrContextTests(unittest.TestCase):
             'release-please-config.json': '{}', '.github/workflows/publish.yaml': workflow,
         }), 'manual')
 
-    def test_release_please_flow_mapping_and_quoted_filename(self):
+    def auto_merge_mode(self, release, name='publish.yml'):
+        workflow = self.RELEASE_JOB.format(other='', release=release)
+        return self.release_mode({'release-please-config.json': '{}', f'.github/workflows/{name}': workflow})
+
+    def test_release_please_flow_mapping(self):
         workflow = self.RELEASE_JOB.format(other='', release='').replace('    with:\n', '    with: { auto-merge: true }\n')
         self.assertEqual(self.release_mode({
-            'release-please-config.json': '{}', '.github/workflows/déploi ement.yml': workflow,
+            'release-please-config.json': '{}', '.github/workflows/publish.yml': workflow,
+        }), 'auto_merge')
+
+    def test_release_please_non_ascii_filename(self):
+        self.assertEqual(self.auto_merge_mode('      auto-merge: true\n', 'déploi ement.yml'), 'auto_merge')
+
+    def test_release_please_auto_merge_value_variants(self):
+        for release in ('      auto-merge: True\n', '      auto-merge: "true"\n', '      app-id: x\n      auto-merge: true\n'):
+            with self.subTest(release=release):
+                self.assertEqual(self.auto_merge_mode(release), 'auto_merge')
+        self.assertEqual(self.auto_merge_mode('      auto-merge: truex\n'), 'manual')
+
+    def test_release_please_inline_flow_mapping_with_other_keys(self):
+        workflow = self.RELEASE_JOB.format(other='', release='').replace(
+            '    with:\n', '    with: {app-id: x, auto-merge: true}\n')
+        self.assertEqual(self.release_mode({
+            'release-please-config.json': '{}', '.github/workflows/publish.yml': workflow,
+        }), 'auto_merge')
+
+    def test_release_please_local_workflow_call(self):
+        workflow = self.RELEASE_JOB.format(other='', release='      auto-merge: true\n').replace(
+            'acme/workflows/.github/workflows/release-please.yml@0123456789abcdef0123456789abcdef01234567',
+            './.github/workflows/release-please.yml')
+        self.assertEqual(self.release_mode({
+            'release-please-config.json': '{}', '.github/workflows/publish.yml': workflow,
         }), 'auto_merge')
 
     def test_release_please_other_action_with_stray_auto_merge_is_manual(self):
