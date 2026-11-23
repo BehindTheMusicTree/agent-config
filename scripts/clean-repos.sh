@@ -280,7 +280,7 @@ classify_process_snapshot() {
   # Read argv and process identity after the slower cwd query.
   table="$(process_table)" && [[ -n "$table" ]] || { echo unknown; return; }
 
-  if ! printf '%s\n' "$previous" '@ps' "$table" '@cwd' "$cwd_records" '@targeted-cwd' "$targeted_cwds" | WT_PATH="$path" WT_REAL="$physical" \
+  if ! printf '%s\n' "$previous" '@ps' "$table" '@cwd' "$cwd_records" "$targeted_cwds" | WT_PATH="$path" WT_REAL="$physical" \
     WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" WT_NESTED="$nested" awk -v self="$$" -v q="'" '
     function inside(n, p,    i) {
       if (!(n == p || index(n, p "/") == 1)) return 0
@@ -323,7 +323,8 @@ classify_process_snapshot() {
     }
     $0 == "@ps" { phase = 1; next }
     $0 == "@cwd" { phase = 2; next }
-    $0 == "@targeted-cwd" { phase = 3; pid = ""; next }
+    $0 == "@targeted-identities" { phase = 3; pid = ""; next }
+    $0 == "@targeted-cwd" { phase = 4; pid = ""; next }
     phase <= 1 {
       if (NF < 9 || $1 !~ /^[1-9][0-9]*$/ || $2 !~ /^[0-9]+$/ || $7 !~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/) {
         invalid = 1
@@ -335,6 +336,8 @@ classify_process_snapshot() {
       for (i = 1; i <= 8; i++) sub(/^[ \t]*[^ \t]+/, "", line)
       sub(/^[ \t]+/, "", line)
       identity = $2 " " start " " line
+      gsub(/[ \t]+$/, "", identity)
+      gsub(/\t/, " ", identity)
       if (phase == 0) {
         previous[pid] = identity
         next
@@ -346,10 +349,15 @@ classify_process_snapshot() {
       argv_match[pid] = mentions(line, path) || (path != real && mentions(line, real))
       next
     }
+    phase == 3 {
+      tab = index($0, "\t")
+      if (tab) requested[substr($0, 1, tab - 1)] = substr($0, tab + 1)
+      next
+    }
     /^p[1-9][0-9]*$/ { pid = substr($0, 2); next }
     /^n/ && pid {
       cwd_seen = 1
-      if (phase == 3) checked_cwd[pid] = 1
+      if (phase == 4) checked_cwd[pid] = requested[pid]
       dir = substr($0, 2)
       cwd_match[pid] = inside(dir, real) || (path != real && inside(dir, path))
     }
@@ -367,23 +375,26 @@ classify_process_snapshot() {
           if (pid != self && matches) caller = 1
           continue
         }
-        # A process may have started or execed into an agent after lsof
-        # collected cwd records, including when it kept the same PID.
-        if (!matches && (pid in checked_cwd || previous[pid] == current[pid])) continue
+        if (!matches) {
+          # Resample newly observed agents. Agent descendants need a cwd or
+          # argv match before they count, so unrelated child churn is ignored.
+          if (agent(command[pid]) != "" &&
+              previous[pid] != current[pid] && checked_cwd[pid] != current[pid])
+            print "unobserved\t" pid "\t" current[pid]
+          continue
+        }
         hops = 0
         for (p = pid; p != 0 && !(p in own); p = parent[p]) {
           if (!(p in parent) || ++hops > count) {
-            if (matches) exit 1
-            break
+            exit 1
           }
           a = agent(command[p])
           if (a != "") {
-            if (matches) print "agent\t" pid ":" a
-            else print "unobserved\t" pid
+            print "agent\t" pid ":" a
             break
           }
         }
-        if (!matches || p == self || (!(p in own) && p != 0)) continue
+        if (p == self || (!(p in own) && p != 0)) continue
         if (argv_match[pid]) print "leftover\t" pid "\t" started[pid]
         else print "busy\t" pid
       }
@@ -397,7 +408,7 @@ classify_process_snapshot() {
 # only for ambiguous new processes and then take a fresh argv/ancestry snapshot.
 classify_worktree_processes() {
   local path="$1" physical previous cwd_records child nested=""
-  local state attempt kind pid extra pid_list targeted_cwds=""
+  local state attempt kind pid identity extra pid_list requested targeted_cwds=""
   local -a unobserved=()
   [[ -n "$original_chain" ]] && command -v lsof >/dev/null 2>&1 || { echo unknown; return; }
   physical="$(canonical_path "$path")"
@@ -415,9 +426,13 @@ classify_worktree_processes() {
   for attempt in 1 2 3; do
     state="$(classify_process_snapshot "$path" "$physical" "$nested" "$previous" "$cwd_records" "$targeted_cwds")"
     unobserved=()
-    while IFS=$'\t' read -r kind pid extra; do
+    requested=""
+    while IFS=$'\t' read -r kind pid identity; do
       case "$kind" in
-        unobserved) unobserved+=("$pid") ;;
+        unobserved)
+          unobserved+=("$pid")
+          requested+="$pid"$'\t'"$identity"$'\n'
+          ;;
         unknown|agent) printf '%s\n' "$state"; return ;;
       esac
     done <<< "$state"
@@ -428,7 +443,7 @@ classify_worktree_processes() {
     if (( attempt < 3 )); then
       pid_list="$(IFS=,; printf '%s' "${unobserved[*]}")"
       extra="$(read_cwd_records -p "$pid_list")" || { echo unknown; return; }
-      targeted_cwds+=$'\n'"$extra"
+      targeted_cwds+=$'\n@targeted-identities\n'"$requested"$'@targeted-cwd\n'"$extra"
     fi
   done
   echo unknown
