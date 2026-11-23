@@ -12,8 +12,8 @@
 # A worktree where a claude or codex session runs (the agent, or an ancestor of a
 # process using the worktree, by argv path or cwd) is kept whole with its
 # branches and processes (agent-session). Only without an agent are the other
-# processes treated as leftovers and killed. The caller's own ancestors are
-# ignored, so a session can still clean its own worktree.
+# processes treated as leftovers and killed. The calling process chain is
+# never signaled. Its worktree is kept unless explicitly opted in.
 #
 # Usage:
 #   clean-repos.sh scan  [git-root] [options]
@@ -34,6 +34,7 @@
 #                             n days (default 7) are removed on apply; a
 #                             branch's recap goes when the branch is gone
 #   --keep-handoffs           never remove handoff recaps
+#   --remove-caller-worktree  allow merged cleanup of the caller's worktree
 #   --remove-equivalent       apply only: also remove worktrees whose content is
 #                             already on trunk (every commit cherry-merged, or a
 #                             merge into trunk changes nothing) when they are
@@ -72,6 +73,8 @@ stale_empty_days=1
 handoff_days=7
 keep_handoffs=false
 remove_equivalent=false
+remove_caller_worktree=false
+entry_cwd="$(pwd -P)"
 
 # Physical path when it exists (git and the user may spell symlinked parents
 # differently, e.g. /var vs /private/var), without trailing slashes.
@@ -108,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --handoff-days) handoff_days="$2"; shift 2 ;;
     --keep-handoffs) keep_handoffs=true; shift ;;
     --remove-equivalent) remove_equivalent=true; shift ;;
+    --remove-caller-worktree) remove_caller_worktree=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -221,75 +225,75 @@ worktree_is_stale_empty() {
   local br="$1" path="$2" created
   created="$(branch_created_at "$br")" || return 1
   (( $(date +%s) - created > stale_empty_days * 86400 )) || return 1
-  worktree_is_idle "$path"
+  worktree_is_idle "$path" "$3"
 }
 
 # Nothing uses the worktree: no process mentions its path and none holds a file
 # or cwd in it. Fail closed when lsof is unavailable or reports errors, since an
 # in-use worktree would otherwise look idle.
 worktree_is_idle() {
-  local path="$1"
-  [[ -z "$(worktree_pids "$path")" ]] || return 1
+  local path="$1" state="$2"
+  [[ -z "$state" ]] || return 1
   command -v lsof >/dev/null 2>&1 || return 1
   local out err
   err="$(mktemp)" || return 1
-  out="$(lsof -t +D "$path" 2>"$err")"
+  local status=0
+  out="$(lsof -t +D "$path" 2>"$err")" || status=$?
   # lsof exits 1 with no output when nothing is open; any stderr (unreadable
   # path, permission problem) means the answer is unknown, so fail closed.
   # An unprivileged lsof also cannot see other users' processes.
-  if [[ -s "$err" ]]; then rm -f "$err"; return 1; fi
+  if (( status > 1 )) || [[ -s "$err" ]]; then rm -f "$err"; return 1; fi
   rm -f "$err"
   [[ -z "$out" ]]
 }
 
-# PIDs whose command line mentions exactly this worktree path. `pgrep -f` treats
-# the path as an unanchored regex, so cleaning .../feature-a would also match
-# processes of .../feature-ab (and "." matches any character). Match literally
-# and require the path to end at a boundary instead.
-worktree_pids() {
-  # The path travels in the environment, not argv, so awk's own command line
-  # (which ps lists) cannot match it; -v would also mangle backslash escapes.
-  ps -axo pid=,command= | WT_PATH="$1" awk -v self="$$" -v parent="$PPID" -v q="'" '
-    BEGIN { p = ENVIRON["WT_PATH"] }
-    $1 == self || $1 == parent { next }
-    {
-      line = $0
-      sub(/^ *[0-9]+ +/, "", line)
-      offset = 0
-      while ((i = index(line, p)) > 0) {
-        before = (offset + i == 1) ? "" : substr(line, i - 1, 1)
-        after = substr(line, i + length(p), 1)
-        if ((before == "" || index(" =:\"" q, before) > 0) && (after == "" || index("/ \t\"" q, after) > 0)) { print $1; next }
-        line = substr(line, i + 1)
-        offset += i
+# Keep the original chain even if a caller exits and cleanup is reparented.
+startup_chain() {
+  local table
+  table="$(ps -axo pid=,ppid= 2>/dev/null)" || return 1
+  printf '%s\n' "$table" | awk -v self="$$" '
+    $1 ~ /^[1-9][0-9]*$/ && $2 ~ /^[0-9]+$/ { parent[$1] = $2 }
+    END {
+      for (p = self; p != 0; p = parent[p]) {
+        if (!(p in parent) || seen[p]++) exit 1
+        print p
       }
     }'
 }
 
-# Live claude/codex sessions using this worktree, as `pid:agent` lines. A process
-# counts when it mentions the path in argv or has its cwd inside it (a session
-# started by `cd <wt> && claude` never shows the path), and an agent is itself or
-# any ancestor whose executable is claude/codex. The ancestors of this script are
-# ignored so the session that runs the cleanup does not protect its own worktree.
-# Fail closed (`?:unknown`) when ps/lsof cannot answer.
-worktree_agent_pids() {
-  local path="$1" table cwd_pids err out
-  table="$(ps -axo pid=,ppid=,command= 2>/dev/null)" && [[ -n "$table" ]] || { echo "?:unknown"; return; }
-  command -v lsof >/dev/null 2>&1 || { echo "?:unknown"; return; }
-  err="$(mktemp)" || { echo "?:unknown"; return; }
-  out="$(lsof -a -d cwd -Fpn 2>"$err")"
-  if [[ -s "$err" ]]; then rm -f "$err"; echo "?:unknown"; return; fi
+# One classification for reporting, idle checks and signaling. A leftover
+# record contains a PID and its start time for the TERM-to-KILL comparison.
+classify_worktree_processes() {
+  local path="$1" physical table cwd_records err
+  [[ -n "$original_chain" ]] && command -v lsof >/dev/null 2>&1 || { echo unknown; return; }
+  physical="$(canonical_path "$path")"
+  table="$(LC_ALL=C ps -ww -axo pid=,ppid=,stat=,lstart=,command= 2>/dev/null)" && [[ -n "$table" ]] \
+    || { echo unknown; return; }
+  err="$(mktemp)" || { echo unknown; return; }
+  if ! cwd_records="$(lsof -a -d cwd -Fpn 2>"$err")" || [[ -s "$err" || -z "$cwd_records" ]]; then
+    rm -f "$err"
+    echo unknown
+    return
+  fi
   rm -f "$err"
-  cwd_pids="$(printf '%s\n' "$out" | WT_PATH="$path" awk '
-    BEGIN { p = ENVIRON["WT_PATH"] }
-    /^p/ { pid = substr($0, 2); next }
-    /^n/ { n = substr($0, 2); if (n == p || index(n, p "/") == 1) print pid }')"
-  {
-    worktree_pids "$path"
-    printf '%s\n' "$cwd_pids"
-  } | sort -u | WT_TABLE="$table" SELF="$$" awk '
-    function agent(cmd,   n, a, i, b) {
-      n = split(cmd, a, " ")
+
+  if ! printf '%s\n' "$table" '@cwd' "$cwd_records" | WT_PATH="$path" WT_REAL="$physical" \
+    WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" awk -v self="$$" -v q="'" '
+    function inside(n, p) { return n == p || index(n, p "/") == 1 }
+    function mentions(line, p,    i, before, after) {
+      before = ""
+      while ((i = index(line, p)) > 0) {
+        if (i > 1) before = substr(line, i - 1, 1)
+        after = substr(line, i + length(p), 1)
+        if ((before == "" || index(" =:\"" q, before) > 0) &&
+            (after == "" || index("/ \t\"" q, after) > 0)) return 1
+        before = substr(line, i, 1)
+        line = substr(line, i + 1)
+      }
+      return 0
+    }
+    function agent(cmd,    n, a, i, b) {
+      n = split(cmd, a, /[ \t]+/)
       for (i = 1; i <= 2 && i <= n; i++) {
         b = a[i]; sub(/.*\//, "", b)
         if (b == "claude" || b == "codex") return b
@@ -297,22 +301,136 @@ worktree_agent_pids() {
       return ""
     }
     BEGIN {
-      n = split(ENVIRON["WT_TABLE"], rows, "\n")
-      for (i = 1; i <= n; i++) {
-        if (split(rows[i], f, " ") < 3) continue
-        pid = f[1]; ppid[pid] = f[2]
-        cmd = rows[i]; sub(/^ *[0-9]+ +[0-9]+ +/, "", cmd); cmdl[pid] = cmd
-      }
-      for (p = ENVIRON["SELF"]; p != "" && p != 0 && !(p in own); p = ppid[p]) own[p] = 1
+      path = ENVIRON["WT_PATH"]; real = ENVIRON["WT_REAL"]
+      n = split(ENVIRON["WT_CHAIN"], chain, "\n")
+      for (i = 1; i <= n; i++) own[chain[i]] = 1
     }
-    $1 != "" && !($1 in own) {
-      for (p = $1; p != "" && p != 0 && ++guard < 200; p = ppid[p]) {
-        if (p in own) break
-        a = agent(cmdl[p])
-        if (a != "") { print $1 ":" a; break }
+    $0 == "@cwd" { cwd = 1; next }
+    !cwd {
+      if (NF < 9 || $1 !~ /^[1-9][0-9]*$/ || $2 !~ /^[0-9]+$/ || $7 !~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/) {
+        invalid = 1
+        next
       }
-      guard = 0
-    }'
+      count++
+      pid = $1; parent[pid] = $2; live[pid] = ($3 !~ /^Z/)
+      started[pid] = $4 " " $5 " " $6 " " $7 " " $8
+      line = $0
+      for (i = 1; i <= 8; i++) sub(/^[ \t]*[^ \t]+/, "", line)
+      sub(/^[ \t]+/, "", line)
+      command[pid] = line
+      argv_match[pid] = mentions(line, path) || (path != real && mentions(line, real))
+      next
+    }
+    /^p[1-9][0-9]*$/ { pid = substr($0, 2); next }
+    /^n/ && pid {
+      cwd_seen = 1
+      dir = substr($0, 2)
+      if (inside(dir, real) || (path != real && inside(dir, path))) cwd_match[pid] = 1
+    }
+    END {
+      if (invalid || !cwd_seen) exit 1
+      for (p = self; p != 0; p = parent[p]) {
+        if (!(p in parent) || seen[p]++) exit 1
+        own[p] = 1
+      }
+      for (p in cwd_match) if (!(p in parent)) exit 1
+      caller = inside(ENVIRON["WT_ENTRY"], real)
+      for (pid in live) {
+        if (!live[pid] || !(argv_match[pid] || cwd_match[pid])) continue
+        if (pid in own) {
+          caller = 1
+          continue
+        }
+        hops = 0
+        for (p = pid; p != 0 && !(p in own); p = parent[p]) {
+          if (!(p in parent) || ++hops > count) exit 1
+          a = agent(command[p])
+          if (a != "") { print "agent\t" pid ":" a; break }
+        }
+        if (p == self || (!(p in own) && p != 0)) continue
+        if (argv_match[pid]) print "leftover\t" pid "\t" started[pid]
+        else print "busy\t" pid
+      }
+      if (caller) print "caller"
+    }'; then
+    echo unknown
+  fi
+}
+
+process_keep_reason() {
+  local state="$1" kind detail
+  while IFS=$'\t' read -r kind detail; do
+    case "$kind" in
+      unknown) echo agent-session; return ;;
+      agent) echo agent-session; return ;;
+    esac
+  done <<< "$state"
+  if ! $remove_caller_worktree && [[ $'\n'"$state"$'\n' == *$'\ncaller\n'* ]]; then
+    echo caller-worktree
+  fi
+}
+
+show_processes() {
+  local state="$1" kind pid rest
+  while IFS=$'\t' read -r kind pid rest; do
+    case "$kind" in
+      leftover) printf '%s:%s ' "$pid" "$(ps -o comm= -p "$pid" 2>/dev/null | sed 's|.*/||')" ;;
+    esac
+  done <<< "$state"
+}
+
+show_agents() {
+  local state="$1" kind detail
+  while IFS=$'\t' read -r kind detail; do
+    case "$kind" in
+      agent) printf '%s ' "$detail" ;;
+      unknown) printf '?:unknown ' ;;
+    esac
+  done <<< "$state"
+}
+
+stop_worktree_processes() {
+  local path="$1" state kind pid started attempt
+  local -a targets=()
+  local -A term_start=()
+  state="$(classify_worktree_processes "$path")"
+  stop_reason="$(process_keep_reason "$state")"
+  [[ -z "$stop_reason" ]] || return 1
+  while IFS=$'\t' read -r kind pid started; do
+    [[ "$kind" == leftover ]] || continue
+    term_start["$pid"]="$started"
+    targets+=("$pid")
+  done <<< "$state"
+  [[ ${#targets[@]} -gt 0 ]] || return 0
+
+  kill -TERM -- "${targets[@]}" 2>/dev/null || true
+  echo "repo=$name killed-processes=$path"
+  for attempt in 0 1 2 3 4 5; do
+    if (( attempt > 0 )); then sleep 1; fi
+    state="$(classify_worktree_processes "$path")"
+    stop_reason="$(process_keep_reason "$state")"
+    [[ -z "$stop_reason" ]] || return 1
+    targets=()
+    while IFS=$'\t' read -r kind pid started; do
+      [[ "$kind" == leftover ]] || continue
+      if [[ "${term_start[$pid]:-}" != "$started" ]]; then
+        stop_reason=processes-changed
+        return 1
+      fi
+      targets+=("$pid")
+    done <<< "$state"
+    [[ ${#targets[@]} -gt 0 ]] || return 0
+  done
+
+  kill -KILL -- "${targets[@]}" 2>/dev/null || true
+  state="$(classify_worktree_processes "$path")"
+  stop_reason="$(process_keep_reason "$state")"
+  [[ -z "$stop_reason" ]] || return 1
+  if [[ $'\n'"$state" == *$'\nleftover\t'* ]]; then
+    stop_reason=processes-changed
+    return 1
+  fi
+  return 0
 }
 
 worktree_branch_proven_on_trunk() {
@@ -341,7 +459,7 @@ worktree_is_equivalent() {
     $open_prs_known || return 1
     [[ -z "${open_pr_number[$br]:-}" ]] || return 1
   fi
-  worktree_is_idle "$path"
+  worktree_is_idle "$path" "${4-$(classify_worktree_processes "$path")}"
 }
 
 # One-line description of a worktree's uncommitted state, so the user can tell
@@ -535,6 +653,8 @@ stale_handoffs() {
   done < <({ find "$common" -maxdepth 1 -type f -name 'agent-handoff-*.md' -print0 2>/dev/null
              find "$common/agent-plans" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null; } | sort -z)
 }
+
+original_chain="$(startup_chain)" || original_chain=""
 
 scanned=0; with_candidates=0; clean=0; errors=0; unmerged_total=0; kept_unmerged=0
 deleted_local=0; deleted_remote=0; removed_worktrees=0; skipped=0; deleted_handoffs=0
@@ -764,29 +884,42 @@ for repo in "$git_root"/*/; do
   stale_empty_worktrees=()
   active_worktrees=()
   active_details=()
+  active_reasons=()
+  declare -A process_states=() linked_paths=() late_protected=()
   active_branches=()
   protected_branches=()
   for i in "${!worktree_branches[@]}"; do
     br="${worktree_branches[$i]}"
     path="${worktree_paths[$i]}"
-    (contains "$br" "${kept_local[@]}" || contains "$br" "${kept_local_squash_verified[@]}" \
-      || contains "$br" "${kept_local_squash_unverified[@]}") || continue
-    if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]]; then
+    linked_paths["$br"]="$path"
+    local_candidate=false
+    if contains "$br" "${kept_local[@]}" || contains "$br" "${kept_local_squash_verified[@]}" \
+      || contains "$br" "${kept_local_squash_unverified[@]}"; then
+      local_candidate=true
+    fi
+    if ! $local_candidate && ! contains "$br" "${kept_remote[@]}"; then continue; fi
+    state="$(classify_worktree_processes "$path")"
+    process_states["$path"]="$state"
+    reason="$(process_keep_reason "$state")"
+    if [[ -n "$reason" ]]; then
+      active_worktrees+=("$path:$br")
+      active_branches+=("$br")
+      active_details+=("$(show_agents "$state")")
+      active_reasons+=("$reason")
+      protected_branches+=("$br")
+    elif ! $local_candidate; then
+      continue
+    elif [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]]; then
       dirty_worktrees+=("$path:$br")
       dirty_details+=("$(worktree_dirty_summary "$path")")
       dirty_reasons+=(uncommitted-changes)
       protected_branches+=("$br")
     elif worktree_branch_is_new_empty "$br"; then
-      if worktree_is_stale_empty "$br" "$path"; then
+      if worktree_is_stale_empty "$br" "$path" "$state"; then
         stale_empty_worktrees+=("$path:$br")
       else
         new_empty_worktrees+=("$path:$br")
       fi
-      protected_branches+=("$br")
-    elif agents="$(worktree_agent_pids "$path")" && [[ -n "$agents" ]]; then
-      active_worktrees+=("$path:$br")
-      active_branches+=("$br")
-      active_details+=("$(printf '%s' "$agents" | tr '\n' ' ' | sed 's/ $//')")
       protected_branches+=("$br")
     fi
   done
@@ -850,7 +983,15 @@ for repo in "$git_root"/*/; do
       sha="${detached_heads[$i]}"
       path_excluded "$path" && continue
       sha_excluded "$sha" && continue
-      if worktree_is_equivalent "$path" "$sha" ""; then
+      state="$(classify_worktree_processes "$path")"
+      reason="$(process_keep_reason "$state")"
+      if [[ -n "$reason" ]]; then
+        active_worktrees+=("$path:(detached ${sha:0:7})")
+        active_details+=("$(show_agents "$state")")
+        active_reasons+=("$reason")
+        continue
+      fi
+      if worktree_is_equivalent "$path" "$sha" "" "$state"; then
         equivalent_worktrees+=("$path:(detached ${sha:0:7})")
         equivalent_branches+=("")
         equivalent_refs+=("$sha")
@@ -899,11 +1040,16 @@ for repo in "$git_root"/*/; do
     [[ ${#kept_remote[@]} -gt 0 ]] && echo "  remote: ${kept_remote[*]}"
     [[ ${#worktree_removals[@]} -gt 0 ]] && echo "  worktrees: ${worktree_removals[*]}"
     for wt in "${worktree_removals[@]}"; do
-      pids="$(worktree_pids "${wt%%:*}" | while read -r p; do printf '%s:%s ' "$p" "$(ps -o comm= -p "$p" 2>/dev/null | sed 's|.*/||')"; done)"
+      path="${wt%%:*}"
+      pids="$(show_processes "${process_states[$path]}")"
       [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%%:*}: $pids"
     done
     for i in "${!active_worktrees[@]}"; do
-      echo "  agent-session (claude/codex running in it, worktree and branch kept, not touched): ${active_worktrees[$i]} [pid:agent=${active_details[$i]}]"
+      if [[ "${active_reasons[$i]}" == caller-worktree ]]; then
+        echo "  caller-worktree (caller uses it, worktree and branch kept): ${active_worktrees[$i]}"
+      else
+        echo "  agent-session (worktree and branch kept): ${active_worktrees[$i]} [pid:agent=${active_details[$i]% }]"
+      fi
     done
     for i in "${!dirty_worktrees[@]}"; do
       echo "  dirty-worktree (uncommitted changes, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
@@ -927,7 +1073,9 @@ for repo in "$git_root"/*/; do
       # Re-check right before acting: the worktree may have been picked up
       # since the scan. Never kill anything here; an in-use one is skipped.
       if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]] \
-         || ! worktree_branch_is_new_empty "$br" || ! worktree_is_stale_empty "$br" "$path"; then
+         || ! worktree_branch_is_new_empty "$br" \
+         || ! worktree_is_stale_empty "$br" "$path" "$(classify_worktree_processes "$path")"; then
+        late_protected["$br"]=1
         echo "repo=$name skip-worktree=$path branch=$br reason=stale-empty-changed"
         skipped=$((skipped + 1))
         continue
@@ -949,21 +1097,12 @@ for repo in "$git_root"/*/; do
     done
     for wt in "${worktree_removals[@]}"; do
       path="${wt%%:*}"
-      # An agent may have started since the scan: keep everything then.
-      if [[ -n "$(worktree_agent_pids "$path")" ]]; then
-        echo "repo=$name skip-worktree=$path branch=${wt#*:} reason=agent-session"
+      br="${wt#*:}"
+      if ! stop_worktree_processes "$path"; then
+        late_protected["$br"]=1
+        echo "repo=$name skip-worktree=$path branch=$br reason=$stop_reason"
         skipped=$((skipped + 1))
         continue
-      fi
-      pids="$(worktree_pids "$path" | tr '\n' ' ')"
-      if [[ -n "${pids// /}" ]]; then
-        # shellcheck disable=SC2086
-        kill $pids 2>/dev/null || true
-        for _ in 1 2 3 4 5; do [[ -z "$(worktree_pids "$path")" ]] && break; sleep 1; done
-        pids="$(worktree_pids "$path" | tr '\n' ' ')"
-        # shellcheck disable=SC2086
-        [[ -n "${pids// /}" ]] && kill -9 $pids 2>/dev/null || true
-        echo "repo=$name killed-processes=$path"
       fi
       if git worktree remove "$path" 2>/dev/null; then
         echo "repo=$name removed-worktree=$path"
@@ -984,6 +1123,7 @@ for repo in "$git_root"/*/; do
       fi
       # The bucket was derived moments ago in this run; re-prove right before acting.
       if ! worktree_is_equivalent "$path" "${equivalent_refs[$i]}" "$br"; then
+        if [[ -n "$br" ]]; then late_protected["$br"]=1; fi
         echo "repo=$name skip-worktree=$path branch=${ew#*:} reason=equivalent-changed"
         skipped=$((skipped + 1))
         continue
@@ -1006,7 +1146,8 @@ for repo in "$git_root"/*/; do
     done
     for i in "${!active_worktrees[@]}"; do
       aw="${active_worktrees[$i]}"
-      echo "repo=$name keep-worktree=${aw%%:*} branch=${aw#*:} reason=agent-session [${active_details[$i]}]"
+      details="${active_details[$i]% }"
+      echo "repo=$name keep-worktree=${aw%%:*} branch=${aw#*:} reason=${active_reasons[$i]}${details:+ [$details]}"
       skipped=$((skipped + 1))
     done
     for i in "${!dirty_worktrees[@]}"; do
@@ -1020,6 +1161,7 @@ for repo in "$git_root"/*/; do
       kept_unmerged=$((kept_unmerged + 1))
     done
     for b in "${kept_local[@]}"; do
+      [[ -z "${late_protected[$b]:-}" ]] || continue
       # Ancestry vs origin/$trunk, not `git branch -d`'s HEAD/upstream check: a stale local trunk would refuse merged branches.
       if git merge-base --is-ancestor "$b" "origin/$trunk" 2>/dev/null \
          && git branch -D "$b" >/dev/null 2>&1; then
@@ -1031,6 +1173,7 @@ for repo in "$git_root"/*/; do
       fi
     done
     for b in "${kept_local_squash_verified[@]}"; do
+      [[ -z "${late_protected[$b]:-}" ]] || continue
       # Safe to force-delete: verified above that this branch's own patch
       # matches the PR's merge commit, so -D can't lose anything that -d's
       # ancestry check would have caught.
@@ -1043,6 +1186,7 @@ for repo in "$git_root"/*/; do
       fi
     done
     for b in "${kept_local_squash_unverified[@]}"; do
+      [[ -z "${late_protected[$b]:-}" ]] || continue
       # Never attempt `git branch -d` here: by construction, membership in
       # this bucket means the branch failed both plain --merged (not a real
       # ancestor of trunk) and the squash patch-id/cherry checks above, so it
@@ -1067,6 +1211,16 @@ for repo in "$git_root"/*/; do
       skipped=$((skipped + 1))
     fi
     for b in "${kept_remote[@]}"; do
+      [[ -z "${late_protected[$b]:-}" ]] || continue
+      path="${linked_paths[$b]:-}"
+      if [[ -n "$path" && -d "$path" ]]; then
+        reason="$(process_keep_reason "$(classify_worktree_processes "$path")")"
+        if [[ -n "$reason" ]]; then
+          echo "repo=$name skip-remote=$b reason=$reason"
+          skipped=$((skipped + 1))
+          continue
+        fi
+      fi
       if git push origin --delete "$b" >/dev/null 2>&1; then
         echo "repo=$name deleted-remote=$b"
         deleted_remote=$((deleted_remote + 1))

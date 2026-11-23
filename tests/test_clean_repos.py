@@ -3,11 +3,13 @@ from pathlib import Path
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'clean-repos.sh'
+WRAPPER = SCRIPT.with_name('cleanup-session.sh')
 
 FAKE_GH = """#!/usr/bin/env bash
 case "$1 $2" in
@@ -217,7 +219,7 @@ class CleanReposTests(unittest.TestCase):
 
     def agent_stub(self, name):
         stub = self.bin / name
-        stub.write_text('#!/usr/bin/env bash\nif [[ "${1:-}" == "--run" ]]; then shift; "$@"; exit $?; fi\nsleep 300; true\n')
+        stub.write_text('#!/usr/bin/env bash\nif [[ "${1:-}" == "--cd" ]]; then shift 2; fi\nif [[ "${1:-}" == "--run" ]]; then shift; "$@"; exit $?; fi\nsleep 300; true\n')
         stub.chmod(0o755)
         return stub
 
@@ -255,16 +257,176 @@ class CleanReposTests(unittest.TestCase):
         proc = self.start_agent('claude', self.root, '--run', 'bash', '-c', 'sleep 300; true', 'child', str(path))
         self.assert_session_kept(path, 'feature/a', proc)
 
-    def test_agent_running_the_script_does_not_protect_its_own_worktree(self):
+    def test_cwd_only_caller_can_opt_in_to_removal(self):
         path = self.add_worktree('feature/a', merged=True)
         stub = self.agent_stub('claude')
         result = subprocess.run(
-            [str(stub), '--run', shutil.which('bash'), str(SCRIPT), 'apply', str(self.root)],
+            [str(stub), '--run', shutil.which('bash'), str(SCRIPT), 'apply', str(self.root), '--remove-caller-worktree'],
             cwd=path, text=True, capture_output=True,
             env={**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'GH_OPEN_BRANCHES': ''})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f'removed-worktree={path}', result.stdout)
         self.assertFalse(path.exists())
+
+    def run_as_codex(self, path, mode, *flags, via_wrapper=True, cwd=None):
+        cmd = [str(WRAPPER), mode, '--no-docker'] if via_wrapper else [str(SCRIPT), mode, str(self.root)]
+        proc = subprocess.Popen(
+            ['bash', '-c', '"$@"; result=$?; echo ancestor-returned; exit "$result"', str(path),
+             str(self.agent_stub('codex')), '--cd', str(path), '--run', 'bash', '-c',
+             'echo "caller=$PPID"; ps -ww -o command= -p "$PPID"; "$@"; result=$?; echo caller-returned; exit "$result"',
+             'tool-shell', *cmd, *flags],
+            cwd=cwd or path, start_new_session=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env={**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}', 'GH_OPEN_BRANCHES': ''},
+        )
+        self.procs.append(proc)
+        stdout, stderr = proc.communicate(timeout=60)
+        self.assertEqual(proc.returncode, 0, stdout + stderr)
+        self.assertIn(f"{self.bin / 'codex'} --cd {path}", stdout)
+        self.assertIn('caller-returned', stdout)
+        self.assertIn('ancestor-returned', stdout)
+        if via_wrapper:
+            self.assertIn('skipped: --no-docker', stdout)
+        return stdout
+
+    def test_wrapper_keeps_caller_worktree_by_default(self):
+        branch = 'feature/caller'
+        path = self.add_worktree(branch, merged=True)
+        recap = self.handoff('repo-feature-caller')
+        plans = self.plans('repo-feature-caller')
+        other = self.add_worktree('feature/other', merged=True)
+        for mode in ('scan', 'apply'):
+            output = self.run_as_codex(path, mode)
+            self.assertIn('caller-worktree', output)
+            self.assertNotIn('running-processes', output)
+            self.assertNotIn('stale-handoff', output)
+            self.assertTrue(path.exists())
+            self.assertTrue(self.branch_exists(branch))
+            self.assertTrue(self.remote_has(branch))
+            self.assertTrue(recap.exists())
+            self.assertTrue(plans.exists())
+        self.assertFalse(other.exists())
+
+    def test_caller_with_only_an_argv_match_keeps_remote(self):
+        branch = 'feature/caller'
+        path = self.add_worktree(branch, merged=True)
+        output = self.run_as_codex(path, 'apply', '--remote-only', via_wrapper=False, cwd=self.root)
+        self.assertIn('reason=caller-worktree', output)
+        self.assertTrue(self.remote_has(branch))
+
+    def start_term_worker(self, path, *on_term):
+        marker = self.bin / 'received-term'
+        code = (
+            'import pathlib, signal, subprocess, sys, time\n'
+            'def handle_term(signum, frame):\n'
+            '    if sys.argv[3:]:\n'
+            '        subprocess.Popen(sys.argv[3:])\n'
+            '    pathlib.Path(sys.argv[2]).touch()\n'
+            'signal.signal(signal.SIGTERM, handle_term)\n'
+            'print("ready", flush=True)\n'
+            'time.sleep(300)\n'
+        )
+        proc = subprocess.Popen(
+            [sys.executable, '-c', code, str(path), str(marker), *on_term],
+            cwd=self.root, start_new_session=True, stdout=subprocess.PIPE, text=True,
+        )
+        self.procs.append(proc)
+        with proc.stdout:
+            self.assertEqual(proc.stdout.readline().strip(), 'ready')
+        return proc, marker
+
+    def test_wrapper_opt_in_signals_worker_but_preserves_caller_and_ancestors(self):
+        branch = 'feature/caller'
+        path = self.add_worktree(branch, merged=True)
+        worker, marker = self.start_term_worker(path)
+        flags = ['--remove-caller-worktree']
+        scan = self.run_as_codex(path, 'scan', *flags)
+        caller = scan.split('caller=', 1)[1].splitlines()[0]
+        processes = [line for line in scan.splitlines() if 'running-processes' in line]
+        self.assertEqual(len(processes), 1, scan)
+        self.assertEqual(processes[0].split(f'{path}: ', 1)[1].split()[0].split(':')[0], str(worker.pid))
+        self.assertEqual(len(processes[0].split(f'{path}: ', 1)[1].split()), 1, scan)
+        self.assertNotIn(f'{caller}:', processes[0])
+        output = self.run_as_codex(path, 'apply', *flags)
+        self.assertIn(f'killed-processes={path}', output)
+        self.assertTrue(marker.exists())
+        self.assertEqual(worker.wait(timeout=10), -signal.SIGKILL)
+        self.assertFalse(path.exists())
+        self.assertFalse(self.branch_exists(branch))
+        self.assertFalse(self.remote_has(branch))
+
+    def test_opt_in_preserves_exclusions_and_independent_agents(self):
+        branch = 'feature/caller'
+        path = self.add_worktree(branch, merged=True)
+        flags = ['--remove-caller-worktree']
+        self.run_as_codex(path, 'apply', *flags, '--exclude', str(path))
+        self.assertTrue(path.exists())
+        agent = self.start_agent('claude', path)
+        output = self.run_as_codex(path, 'apply', *flags)
+        self.assertIn('reason=agent-session', output)
+        self.assertNotIn('killed-processes', output)
+        self.assertIsNone(agent.poll())
+        self.assert_worktree_kept(path, branch)
+        self.assertTrue(self.remote_has(branch))
+
+    def test_late_agent_prevents_kill_and_branch_deletion(self):
+        branch = 'feature/late'
+        path = self.add_worktree(branch, merged=True)
+        recap = self.handoff('repo-feature-late')
+        plans = self.plans('repo-feature-late')
+        # The child agent stays outside the argv path until TERM launches it.
+        launcher = self.bin / 'launch-agent'
+        launcher.write_text(
+            f'#!/usr/bin/env bash\ncd "{path}"\nexec "{self.agent_stub("codex")}"\n'
+        )
+        launcher.chmod(0o755)
+        worker, marker = self.start_term_worker(path, str(launcher))
+        output = self.run_script('apply')
+        self.assertTrue(marker.exists())
+        self.assertIn(f'skip-worktree={path} branch={branch} reason=agent-session', output)
+        self.assertIsNone(worker.poll())
+        self.assert_worktree_kept(path, branch)
+        self.assertTrue(self.remote_has(branch))
+        self.assertTrue(recap.exists())
+        self.assertTrue(plans.exists())
+
+    def test_new_leftover_during_grace_period_is_not_sent_kill(self):
+        branch = 'feature/late'
+        path = self.add_worktree(branch, merged=True)
+        launcher = self.bin / 'launch-leftover'
+        child_pid = self.bin / 'child-pid'
+        launcher.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'bash -c \'echo $$ > "$2"; sleep 300; true\' worker "{path}" "{child_pid}"\n'
+        )
+        launcher.chmod(0o755)
+        worker, marker = self.start_term_worker(path, str(launcher))
+        output = self.run_script('apply')
+        self.assertTrue(marker.exists())
+        self.assertIn(f'skip-worktree={path} branch={branch} reason=processes-changed', output)
+        self.assertIsNone(worker.poll())
+        os.kill(int(child_pid.read_text()), 0)
+        self.assert_worktree_kept(path, branch)
+        self.assertTrue(self.remote_has(branch))
+
+    def test_cwd_discovery_failure_during_grace_period_preserves_refs(self):
+        branch = 'feature/late'
+        path = self.add_worktree(branch, merged=True)
+        worker, marker = self.start_term_worker(path)
+        real_lsof = shutil.which('lsof')
+        self.assertIsNotNone(real_lsof)
+        lsof = self.bin / 'lsof'
+        lsof.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'if [[ -f "{marker}" ]]; then echo "test: cwd discovery failed" >&2; exit 1; fi\n'
+            f'exec "{real_lsof}" "$@"\n'
+        )
+        lsof.chmod(0o755)
+        output = self.run_script('apply')
+        self.assertTrue(marker.exists())
+        self.assertIn(f'skip-worktree={path} branch={branch} reason=agent-session', output)
+        self.assertIsNone(worker.poll())
+        self.assert_worktree_kept(path, branch)
+        self.assertTrue(self.remote_has(branch))
 
     def test_keeps_worktree_when_ps_fails(self):
         path = self.add_worktree('feature/a', merged=True)
@@ -274,6 +436,7 @@ class CleanReposTests(unittest.TestCase):
         output = self.run_script('apply', GH_OPEN_BRANCHES='')
         self.assertIn('reason=agent-session', output)
         self.assertTrue(path.exists())
+        self.assertTrue(self.remote_has('feature/a'))
 
     def test_reports_no_processes_for_an_idle_worktree(self):
         self.add_worktree('feature/a', merged=True)
