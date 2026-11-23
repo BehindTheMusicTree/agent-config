@@ -6,6 +6,10 @@
 
 - Cleanup preserves the calling process and its ancestors during worktree removal. The caller’s active worktree is kept by default and can be removed with `--remove-caller-worktree`.
 
+### CI
+
+- Check organization conformance on pushes and pull requests.
+
 ## [3.8.0] - 2026-11-23
 
 ### Added
