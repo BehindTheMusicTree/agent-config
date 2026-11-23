@@ -358,6 +358,7 @@ classify_process_snapshot() {
     /^n/ && pid {
       cwd_seen = 1
       if (phase == 4) checked_cwd[pid] = requested[pid]
+      else global_cwd[pid] = 1
       dir = substr($0, 2)
       cwd_match[pid] = inside(dir, real) || (path != real && inside(dir, path))
     }
@@ -375,26 +376,25 @@ classify_process_snapshot() {
           if (pid != self && matches) caller = 1
           continue
         }
-        if (!matches) {
-          # Resample newly observed agents. Agent descendants need a cwd or
-          # argv match before they count, so unrelated child churn is ignored.
-          if (agent(command[pid]) != "" &&
-              previous[pid] != current[pid] && checked_cwd[pid] != current[pid])
-            print "unobserved\t" pid "\t" current[pid]
-          continue
-        }
+        if (!matches && (previous[pid] == current[pid] || checked_cwd[pid] == current[pid])) continue
+        # Reconcile descendants missing from the global cwd scan once.
+        # Follow up on those PIDs and new agents during the targeted scans.
+        if (!matches && agent(command[pid]) == "" && !(pid in requested) &&
+            (phase == 4 || pid in global_cwd)) continue
         hops = 0
         for (p = pid; p != 0 && !(p in own); p = parent[p]) {
           if (!(p in parent) || ++hops > count) {
-            exit 1
+            if (matches) exit 1
+            break
           }
           a = agent(command[p])
           if (a != "") {
-            print "agent\t" pid ":" a
+            if (matches) print "agent\t" pid ":" a
+            else print "unobserved\t" pid "\t" current[pid]
             break
           }
         }
-        if (p == self || (!(p in own) && p != 0)) continue
+        if (!matches || p == self || (!(p in own) && p != 0)) continue
         if (argv_match[pid]) print "leftover\t" pid "\t" started[pid]
         else print "busy\t" pid
       }

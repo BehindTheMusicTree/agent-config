@@ -339,12 +339,14 @@ class CleanReposTests(unittest.TestCase):
         self.assertFalse(self.remote_has(primary_branch))
         self.assertTrue(self.remote_has(caller_branch))
 
-    def assert_cwd_only_agent_during_remote_recheck_keeps_branch(self, replace_launcher, replace_twice=False):
+    def assert_cwd_only_agent_during_remote_recheck_keeps_branch(
+        self, replace_launcher, replace_twice=False, agent_is_parent=False,
+    ):
         branch = 'feature/late'
         path = self.add_worktree(branch, merged=True)
         trigger = self.bin / 'trigger'
         ready = self.bin / 'ready'
-        stub = self.bin / 'codex'
+        stub = self.bin / ('worker' if agent_is_parent else 'codex')
         fifo = self.bin / 'hold-agent'
         os.mkfifo(fifo)
         stub.write_text(f'#!/usr/bin/env bash\n: > "{ready}"\nexec 3<> "{fifo}"\nread -r <&3\n')
@@ -362,7 +364,7 @@ class CleanReposTests(unittest.TestCase):
             )
             intermediate.chmod(0o755)
             command = f'exec "{intermediate}"'
-        launcher = self.bin / 'launch-late-agent'
+        launcher = self.bin / ('codex' if agent_is_parent else 'launch-late-agent')
         launcher.write_text(
             f'#!/usr/bin/env bash\n'
             f'until [[ -e "{trigger}" ]]; do sleep 0.05; done\n'
@@ -416,6 +418,11 @@ class CleanReposTests(unittest.TestCase):
 
     def test_new_cwd_only_agent_during_remote_recheck_keeps_branch(self):
         self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(replace_launcher=False)
+
+    def test_new_cwd_only_agent_child_during_remote_recheck_keeps_branch(self):
+        self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(
+            replace_launcher=False, agent_is_parent=True,
+        )
 
     def test_cwd_only_agent_exec_during_remote_recheck_keeps_branch(self):
         self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(replace_launcher=True)
