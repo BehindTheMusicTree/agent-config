@@ -833,6 +833,7 @@ for repo in "$git_root"/*/; do
       contains "$path:$br" "${dirty_worktrees[@]}" && continue
       contains "$path:$br" "${new_empty_worktrees[@]}" && continue
       contains "$path:$br" "${stale_empty_worktrees[@]}" && continue
+      contains "$path:$br" "${active_worktrees[@]}" && continue
       if worktree_is_equivalent "$path" "refs/heads/$br" "$br"; then
         equivalent_worktrees+=("$path:$br")
         equivalent_branches+=("$br")
