@@ -102,6 +102,52 @@ def merge_method(root):
                      'state it in the contributing docs')
 
 
+RELEASE_PLEASE_FILES = ('release-please-config.json', '.release-please-manifest.json')
+RELEASE_PLEASE_USES = re.compile(r'^\s*(?:-\s+)?uses:\s*["\']?[^\s"\'#]*release-please', re.M)
+AUTO_MERGE_TRUE = re.compile(r'^\s*auto-merge:\s*["\']?true["\']?\s*(?:#.*)?$', re.M)
+
+
+def job_blocks(text):
+    """Split a workflow's `jobs:` mapping into per-job text by indentation (heuristic, no YAML parser)."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if re.match(r'^jobs:\s*(?:#.*)?$', line)), None)
+    if start is None:
+        return []
+    blocks, indent = [], None
+    for line in lines[start + 1:]:
+        if not line.strip() or line.lstrip().startswith('#'):
+            if blocks:
+                blocks[-1].append(line)
+            continue
+        width = len(line) - len(line.lstrip())
+        if indent is None:
+            indent = width
+        if width < indent or width == 0:
+            break
+        if width == indent:
+            blocks.append([])
+        blocks[-1].append(line)
+    return ['\n'.join(block) for block in blocks]
+
+
+def release_please(root, base_sha):
+    """Read release-please setup from the base commit: none, manual, or auto_merge."""
+    present = git(root, 'ls-tree', '--name-only', base_sha, '--', *RELEASE_PLEASE_FILES).split()
+    if not present:
+        return 'none'
+    workflows = [p for p in git(root, 'ls-tree', '--name-only', base_sha, '--', '.github/workflows/').splitlines()
+                 if p.endswith(('.yml', '.yaml'))]
+    for path in workflows:
+        raw = git(root, 'show', f'{base_sha}:{path}')
+        try:
+            text = raw.encode('utf-8', 'surrogateescape').decode('utf-8')
+        except UnicodeDecodeError as exc:
+            raise ValueError(f'Cannot read workflow {path} at {base_sha[:12]}: {exc}') from exc
+        if any(RELEASE_PLEASE_USES.search(job) and AUTO_MERGE_TRUE.search(job) for job in job_blocks(text)):
+            return 'auto_merge'
+    return 'manual'
+
+
 def branch_prefix(flow, branch, intent):
     if flow != 'gitflow' or intent == 'back-merge':
         return 'n/a'
@@ -123,6 +169,7 @@ def collect(root, base, limit, validation_logs, intent='change', depth='auto', g
     base_sha = git(root, 'rev-parse', '--verify', '--end-of-options', base + '^{commit}').strip()
     head = git(root, 'rev-parse', 'HEAD').strip()
     merge_base = git(root, 'merge-base', base_sha, head).strip()
+    release_mode = release_please(root, base_sha)
     commits = []
     for line in git(root, 'log', '--format=%H%x00%s', base_sha + '..' + head).splitlines():
         sha, subject = line.split('\0', 1)
@@ -147,6 +194,7 @@ def collect(root, base, limit, validation_logs, intent='change', depth='auto', g
         'branch_prefix': branch_prefix(flow, branch, intent),
         'pr_template': pr_template(root, github),
         'merge_method': merge_method(root) if github else None,
+        'release_please': release_mode,
         'flow': flow, 'base_ref': base, 'base_sha': base_sha, 'merge_base': merge_base, 'head_sha': head,
         'review_request': {'intent': intent, 'depth': depth, 'classification': 'requires_hunk_review'},
         'commits': bounded(commits, limit), 'files': bounded(files, limit),

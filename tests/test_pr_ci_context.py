@@ -136,6 +136,60 @@ class PrContextTests(unittest.TestCase):
             'intent': 'release', 'depth': 'light', 'classification': 'requires_hunk_review',
         })
 
+    RELEASE_JOB = (
+        'jobs:\n'
+        '  build:\n'
+        '    runs-on: ubuntu-latest\n'
+        '{other}'
+        '  release-please:\n'
+        '    uses: acme/workflows/.github/workflows/release-please.yml@0123456789abcdef0123456789abcdef01234567\n'
+        '    with:\n'
+        '{release}'
+    )
+
+    def release_mode(self, files):
+        for path, content in files.items():
+            (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / path).write_text(content)
+        self.git('add', '.')
+        self.git('commit', '-qm', 'release setup')
+        return pr_context.collect(self.root, 'HEAD', 30, [])['release_please']
+
+    def test_release_please_none_without_config(self):
+        self.assertEqual(pr_context.collect(self.root, 'base', 30, [])['release_please'], 'none')
+
+    def test_release_please_auto_merge_in_release_job(self):
+        workflow = self.RELEASE_JOB.format(other='', release='      auto-merge: true\n')
+        self.assertEqual(self.release_mode({
+            'release-please-config.json': '{}', '.github/workflows/publish.yml': workflow,
+        }), 'auto_merge')
+
+    def test_release_please_manual_when_auto_merge_false(self):
+        workflow = self.RELEASE_JOB.format(other='', release='      auto-merge: false\n')
+        self.assertEqual(self.release_mode({
+            '.release-please-manifest.json': '{}', '.github/workflows/publish.yml': workflow,
+        }), 'manual')
+
+    def test_release_please_manual_when_auto_merge_in_another_job(self):
+        workflow = self.RELEASE_JOB.format(other='    with:\n      auto-merge: true\n', release='      app-id: x\n')
+        self.assertEqual(self.release_mode({
+            'release-please-config.json': '{}', '.github/workflows/publish.yaml': workflow,
+        }), 'manual')
+
+    def test_release_please_reads_base_not_worktree(self):
+        workflow = self.RELEASE_JOB.format(other='', release='      auto-merge: true\n')
+        self.release_mode({'release-please-config.json': '{}', '.github/workflows/publish.yml': workflow})
+        self.assertEqual(pr_context.collect(self.root, 'base', 30, [])['release_please'], 'none')
+
+    def test_release_please_unreadable_workflow_fails(self):
+        (self.root / '.github' / 'workflows').mkdir(parents=True)
+        (self.root / '.github' / 'workflows' / 'bad.yml').write_bytes(b'jobs:\n  x: \xff\n')
+        (self.root / 'release-please-config.json').write_text('{}')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'bad workflow')
+        with self.assertRaisesRegex(ValueError, 'Cannot read workflow .github/workflows/bad.yml'):
+            pr_context.collect(self.root, 'HEAD', 30, [])
+
     def test_invalid_review_arguments_fail_before_collecting(self):
         result = subprocess.run([
             'python3', str(ROOT / 'scripts/pr-context.py'), '--repo', str(self.root), '--depth', 'skip',

@@ -2,12 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- `pr-context.py` reports `release_please` (`none`, `manual` or `auto_merge`) from the base commit, and the PR policy gains a "Release-please repositories" section: the PR title sets the version, an auto-merged release is announced with its expected version, and a repository without release-please gets no release announcement.
+
 ### Fixed
 
 - `clean-repos` no longer removes a merged worktree where a claude or codex session runs (detected by cwd, argv path or agent ancestor): the worktree, its branches and its processes are kept (`agent-session`). The session that runs the cleanup is ignored, so `cleanup-session` still removes its own worktree.
 
 ### Changed
 
+- `create-pr` detects release-please from `pr-context.py` instead of looking for its files itself, and its report states the expected release (or none).
 - The Python rule is shorter and limits the Django/DRF/PostgreSQL stack preference to new backend projects (mypy's Django plugin to Django projects), so it no longer reads as a default in other Python repositories.
 
 ### CI

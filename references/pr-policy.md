@@ -69,6 +69,14 @@ After `create-pr` opens or updates a PR, enable auto-merge on it unless the user
 - Read the PR back and report `autoMergeRequest` (method) or the reason it was skipped.
 - Refresh every check's state before any manual merge. `gh pr merge --admin` is allowed only when the sole remaining blocker is a required review on a repository the user maintains alone, as a separate step once every check has passed or been intentionally skipped. Never bypass failing, pending or missing checks, or conflicts.
 
+## Release-please repositories
+
+`pr-context.py` reports `release_please` from the base commit: `none` (no release-please config or manifest), `manual` (configured, but no workflow job both calls release-please and sets `auto-merge: true`) or `auto_merge`. The workflow check is a text heuristic over job blocks, not a YAML evaluation; the organization's release configuration owns the actual mechanics.
+
+- `manual` and `auto_merge`: the PR title sets the changelog entry and the version (`feat` minor, `fix` patch, `!` breaking). Choose it from the effect on users, not from the type of the last commit.
+- `auto_merge`: merging this PR starts a release. Report the expected version. CI merges the release PR; if its auto-merge fails, **Auto-merge** applies: do not fall back to an immediate merge.
+- `none`: do not announce a release.
+
 ## Handoff and reuse
 
 `create-pr` owns coverage, intent checks, final review and PR body. `create-pr-and-fix-ci` calls it once and then owns the CI/mergeability loop. `release` supplies explicit intent/base for its release and back-merge PRs. Pass the selection, exact reviewed state, validation commands/results and limitations through nested calls; do not spawn another reviewer merely because another skill starts.
