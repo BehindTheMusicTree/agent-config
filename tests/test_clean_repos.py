@@ -268,8 +268,10 @@ class CleanReposTests(unittest.TestCase):
         self.assertIn(f'removed-worktree={path}', result.stdout)
         self.assertFalse(path.exists())
 
-    def run_as_codex(self, path, mode, *flags, via_wrapper=True, cwd=None):
-        cmd = [str(WRAPPER), mode, '--no-docker'] if via_wrapper else [str(SCRIPT), mode, str(self.root)]
+    def run_as_codex(self, path, mode, *flags, via_wrapper=True, cwd=None, git_root=None):
+        cmd = (
+            [str(WRAPPER), mode, '--no-docker'] if via_wrapper else [str(SCRIPT), mode, str(git_root or self.root)]
+        )
         proc = subprocess.Popen(
             ['bash', '-c', '"$@"; result=$?; echo ancestor-returned; exit "$result"', str(path),
              str(self.agent_stub('codex')), '--cd', str(path), '--run', 'bash', '-c',
@@ -329,37 +331,54 @@ class CleanReposTests(unittest.TestCase):
         caller = self.add_worktree(caller_branch, merged=True)
         git(self.repo, 'worktree', 'remove', str(primary_linked))
         git(self.repo, 'switch', primary_branch)
-        output = self.run_as_codex(caller, 'apply', '--remote-only')
+        root_alias = self.root.with_name('git-alias')
+        root_alias.symlink_to(self.root, target_is_directory=True)
+        output = self.run_as_codex(caller, 'apply', '--remote-only', via_wrapper=False, git_root=root_alias)
         self.assertIn(f'keep-worktree={caller} branch={caller_branch} reason=caller-worktree', output)
         self.assertIn(f'deleted-remote={primary_branch}', output)
         self.assertFalse(self.remote_has(primary_branch))
         self.assertTrue(self.remote_has(caller_branch))
 
-    def test_new_cwd_only_agent_during_remote_recheck_keeps_branch(self):
+    def assert_cwd_only_agent_during_remote_recheck_keeps_branch(self, replace_launcher):
         branch = 'feature/late'
         path = self.add_worktree(branch, merged=True)
         trigger = self.bin / 'trigger'
         ready = self.bin / 'ready'
         stub = self.bin / 'codex'
-        stub.write_text(f'#!/usr/bin/env bash\ntouch "{ready}"\nsleep 300; true\n')
+        fifo = self.bin / 'hold-agent'
+        os.mkfifo(fifo)
+        stub.write_text(f'#!/usr/bin/env bash\n: > "{ready}"\nexec 3<> "{fifo}"\nread -r <&3\n')
         stub.chmod(0o755)
         launcher = self.bin / 'launch-late-agent'
+        replace = 'exec ' if replace_launcher else ''
         launcher.write_text(
             f'#!/usr/bin/env bash\n'
             f'until [[ -e "{trigger}" ]]; do sleep 0.05; done\n'
-            f'cd "{path}" && "{stub}"\n'
+            f'cd "{path}" && {replace}"{stub}"\n'
         )
         launcher.chmod(0o755)
         proc = subprocess.Popen([str(launcher)], cwd=self.root, start_new_session=True)
         self.procs.append(proc)
-        first_probe = self.bin / 'first-probe'
+        first_listing = self.bin / 'first-listing'
+        remote_recheck = self.bin / 'remote-recheck'
+        real_git = shutil.which('git')
+        git_shim = self.bin / 'git'
+        git_shim.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'if [[ "$*" == "worktree list --porcelain" ]]; then\n'
+            f'  if [[ -e "{first_listing}" ]]; then touch "{remote_recheck}"; fi\n'
+            f'  touch "{first_listing}"\n'
+            f'fi\n'
+            f'exec "{real_git}" "$@"\n'
+        )
+        git_shim.chmod(0o755)
         real_lsof = shutil.which('lsof')
         self.assertIsNotNone(real_lsof)
         shim = self.bin / 'lsof'
         shim.write_text(
             f'#!/usr/bin/env bash\n'
-            f'if [[ ! -e "{first_probe}" ]]; then\n'
-            f'  touch "{first_probe}"; exec "{real_lsof}" "$@"\n'
+            f'if [[ ! -e "{remote_recheck}" || -e "{trigger}" || "$*" == *" -p "* ]]; then\n'
+            f'  exec "{real_lsof}" "$@"\n'
             f'fi\n'
             f'snapshot="$("{real_lsof}" "$@")" || exit\n'
             f'touch "{trigger}"\n'
@@ -375,6 +394,12 @@ class CleanReposTests(unittest.TestCase):
         self.assertIn(f'skip-remote={branch} reason=agent-session', output)
         self.assertTrue(self.remote_has(branch))
         self.assertIsNone(proc.poll())
+
+    def test_new_cwd_only_agent_during_remote_recheck_keeps_branch(self):
+        self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(replace_launcher=False)
+
+    def test_cwd_only_agent_exec_during_remote_recheck_keeps_branch(self):
+        self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(replace_launcher=True)
 
     def test_removes_merged_worktree_with_colon_in_path(self):
         branch = 'feature/colon'
@@ -440,6 +465,7 @@ class CleanReposTests(unittest.TestCase):
         self.assertNotIn(f'{caller}:', processes[0])
         output = self.run_as_codex(path, 'apply', *flags)
         self.assertIn(f'killed-processes={path}', output)
+        self.assertIn(f'removed-worktree={path}', output)
         self.assertTrue(marker.exists())
         self.assertEqual(worker.wait(timeout=10), -signal.SIGKILL)
         self.assertFalse(path.exists())

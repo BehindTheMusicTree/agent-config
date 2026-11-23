@@ -261,32 +261,26 @@ startup_chain() {
     }'
 }
 
-observe_worktree_processes() {
-  local path="$1" physical previous table cwd_records err child nested=""
-  [[ -n "$original_chain" ]] && command -v lsof >/dev/null 2>&1 || { echo unknown; return; }
-  physical="$(canonical_path "$path")"
-  if [[ "$path" == "$repo" ]]; then
-    for child in "${worktree_paths[@]}" "${detached_paths[@]}"; do
-      if [[ "$child" == "$path/"* ]]; then
-        nested+="$child"$'\n'"$physical${child#"$path"}"$'\n'
-      elif [[ "$child" == "$physical/"* ]]; then
-        nested+="$child"$'\n'"$path${child#"$physical"}"$'\n'
-      fi
-    done
-  fi
-  previous="$(ps -axo pid= 2>/dev/null)" && [[ -n "$previous" ]] || { echo unknown; return; }
-  err="$(mktemp)" || { echo unknown; return; }
-  if ! cwd_records="$(lsof -a -d cwd -Fpn 2>"$err")" || [[ -s "$err" || -z "$cwd_records" ]]; then
-    rm -f "$err"
-    echo unknown
-    return
-  fi
+read_cwd_records() {
+  local output err status=0
+  err="$(mktemp)" || return 1
+  output="$(lsof -a -d cwd -Fpn "$@" 2>"$err")" || status=$?
+  # A targeted query can find no cwd because a process just exited.
+  if [[ -s "$err" ]] || (( status > 1 )); then rm -f "$err"; return 1; fi
   rm -f "$err"
-  # Read argv and process identity after the slower cwd query.
-  table="$(LC_ALL=C ps -ww -axo pid=,ppid=,stat=,lstart=,command= 2>/dev/null)" && [[ -n "$table" ]] \
-    || { echo unknown; return; }
+  printf '%s\n' "$output"
+}
 
-  if ! printf '%s\n' "$previous" '@ps' "$table" '@cwd' "$cwd_records" | WT_PATH="$path" WT_REAL="$physical" \
+process_table() {
+  LC_ALL=C ps -ww -axo pid=,ppid=,stat=,lstart=,command= 2>/dev/null
+}
+
+classify_process_snapshot() {
+  local path="$1" physical="$2" nested="$3" previous="$4" cwd_records="$5" targeted_cwds="$6" table
+  # Read argv and process identity after the slower cwd query.
+  table="$(process_table)" && [[ -n "$table" ]] || { echo unknown; return; }
+
+  if ! printf '%s\n' "$previous" '@ps' "$table" '@cwd' "$cwd_records" '@targeted-cwd' "$targeted_cwds" | WT_PATH="$path" WT_REAL="$physical" \
     WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" WT_NESTED="$nested" awk -v self="$$" -v q="'" '
     function inside(n, p,    i) {
       if (!(n == p || index(n, p "/") == 1)) return 0
@@ -329,27 +323,35 @@ observe_worktree_processes() {
     }
     $0 == "@ps" { phase = 1; next }
     $0 == "@cwd" { phase = 2; next }
-    phase == 0 { previous[$1] = 1; next }
-    phase == 1 {
+    $0 == "@targeted-cwd" { phase = 3; pid = ""; next }
+    phase <= 1 {
       if (NF < 9 || $1 !~ /^[1-9][0-9]*$/ || $2 !~ /^[0-9]+$/ || $7 !~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9]$/) {
         invalid = 1
         next
       }
-      count++
-      pid = $1; parent[pid] = $2; live[pid] = ($3 !~ /^Z/)
-      started[pid] = $4 " " $5 " " $6 " " $7 " " $8
+      pid = $1
+      start = $4 " " $5 " " $6 " " $7 " " $8
       line = $0
       for (i = 1; i <= 8; i++) sub(/^[ \t]*[^ \t]+/, "", line)
       sub(/^[ \t]+/, "", line)
+      identity = $2 " " start " " line
+      if (phase == 0) {
+        previous[pid] = identity
+        next
+      }
+      count++
+      parent[pid] = $2; live[pid] = ($3 !~ /^Z/)
+      started[pid] = start; current[pid] = identity
       command[pid] = line
       argv_match[pid] = mentions(line, path) || (path != real && mentions(line, real))
       next
     }
     /^p[1-9][0-9]*$/ { pid = substr($0, 2); next }
     /^n/ && pid {
-      cwd_seen = 1; observed_cwd[pid] = 1
+      cwd_seen = 1
+      if (phase == 3) checked_cwd[pid] = 1
       dir = substr($0, 2)
-      if (inside(dir, real) || (path != real && inside(dir, path))) cwd_match[pid] = 1
+      cwd_match[pid] = inside(dir, real) || (path != real && inside(dir, path))
     }
     END {
       if (invalid || !cwd_seen) exit 1
@@ -365,9 +367,9 @@ observe_worktree_processes() {
           if (pid != self && matches) caller = 1
           continue
         }
-        # A new process with an independent agent ancestor may have been
-        # created after lsof collected cwd records. Its cwd is unknown.
-        if (!matches && (pid in previous || pid in observed_cwd)) continue
+        # A process may have started or execed into an agent after lsof
+        # collected cwd records, including when it kept the same PID.
+        if (!matches && (pid in checked_cwd || previous[pid] == current[pid])) continue
         hops = 0
         for (p = pid; p != 0 && !(p in own); p = parent[p]) {
           if (!(p in parent) || ++hops > count) {
@@ -377,7 +379,7 @@ observe_worktree_processes() {
           a = agent(command[p])
           if (a != "") {
             if (matches) print "agent\t" pid ":" a
-            else { print "refresh"; exit }
+            else print "unobserved\t" pid
             break
           }
         }
@@ -391,15 +393,42 @@ observe_worktree_processes() {
   fi
 }
 
-# One classification for reporting, idle checks and signaling. A leftover
-# record contains a PID and its start time for the TERM-to-KILL comparison.
+# One classification for reporting, idle checks and signaling. Recheck cwd
+# only for ambiguous new processes and then take a fresh argv/ancestry snapshot.
 classify_worktree_processes() {
-  local attempt state
+  local path="$1" physical previous cwd_records child nested=""
+  local state attempt kind pid extra pid_list targeted_cwds=""
+  local -a unobserved=()
+  [[ -n "$original_chain" ]] && command -v lsof >/dev/null 2>&1 || { echo unknown; return; }
+  physical="$(canonical_path "$path")"
+  if [[ "$physical" == "$main_worktree" ]]; then
+    for child in "${worktree_paths[@]}" "${detached_paths[@]}"; do
+      if [[ "$child" == "$path/"* ]]; then
+        nested+="$child"$'\n'"$physical${child#"$path"}"$'\n'
+      elif [[ "$child" == "$physical/"* ]]; then
+        nested+="$child"$'\n'"$path${child#"$physical"}"$'\n'
+      fi
+    done
+  fi
+  previous="$(process_table)" && [[ -n "$previous" ]] || { echo unknown; return; }
+  cwd_records="$(read_cwd_records)" && [[ -n "$cwd_records" ]] || { echo unknown; return; }
   for attempt in 1 2 3; do
-    state="$(observe_worktree_processes "$1")"
-    if [[ $'\n'"$state"$'\n' != *$'\nrefresh\n'* ]]; then
+    state="$(classify_process_snapshot "$path" "$physical" "$nested" "$previous" "$cwd_records" "$targeted_cwds")"
+    unobserved=()
+    while IFS=$'\t' read -r kind pid extra; do
+      case "$kind" in
+        unobserved) unobserved+=("$pid") ;;
+        unknown|agent) printf '%s\n' "$state"; return ;;
+      esac
+    done <<< "$state"
+    if [[ ${#unobserved[@]} -eq 0 ]]; then
       printf '%s\n' "$state"
       return
+    fi
+    if (( attempt < 3 )); then
+      pid_list="$(IFS=,; printf '%s' "${unobserved[*]}")"
+      extra="$(read_cwd_records -p "$pid_list")" || { echo unknown; return; }
+      targeted_cwds+=$'\n'"$extra"
     fi
   done
   echo unknown
@@ -718,7 +747,7 @@ read_worktrees() {
     elif [[ "$line" == HEAD\ * ]]; then
       current_head="${line#HEAD }"
     elif [[ "$line" == detached ]]; then
-      if [[ "$current_path" != "$repo" ]]; then
+      if [[ "$current_path" != "$main_worktree" ]]; then
         detached_paths+=("$current_path")
         detached_heads+=("$current_head")
       fi
@@ -740,6 +769,7 @@ for repo in "$git_root"/*/; do
   repo="${repo%/}"
   [[ -d "$repo/.git" ]] || continue
   name="$(basename "$repo")"
+  main_worktree="$(canonical_path "$repo")"
 
   [[ ${#only_repos[@]} -gt 0 ]] && ! contains "$name" "${only_repos[@]}" && continue
   [[ ${#exclude_repos[@]} -gt 0 ]] && contains "$name" "${exclude_repos[@]}" && continue
@@ -997,7 +1027,7 @@ for repo in "$git_root"/*/; do
 
   worktree_removals=()
   for i in "${!worktree_branches[@]}"; do
-    [[ "${worktree_paths[$i]}" != "$repo" ]] || continue
+    [[ "${worktree_paths[$i]}" != "$main_worktree" ]] || continue
     br="${worktree_branches[$i]}"
     (contains "$br" "${kept_local[@]}" || contains "$br" "${kept_local_squash_verified[@]}" \
      || contains "$br" "${kept_local_squash_unverified[@]}") \
@@ -1016,7 +1046,7 @@ for repo in "$git_root"/*/; do
     for i in "${!worktree_branches[@]}"; do
       br="${worktree_branches[$i]}"
       path="${worktree_paths[$i]}"
-      [[ "$path" != "$repo" ]] || continue
+      [[ "$path" != "$main_worktree" ]] || continue
       contains "$br" "${repo_excludes[@]}" && continue
       contains "$path:$br" "${worktree_removals[@]}" && continue
       contains "$path:$br" "${dirty_worktrees[@]}" && continue
