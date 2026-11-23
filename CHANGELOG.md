@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### CI
+
+- Check organization conformance on pushes and pull requests.
+
 ## [3.8.0] - 2026-11-23
 
 ### Added
