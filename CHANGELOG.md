@@ -5,6 +5,7 @@
 ### Fixed
 
 - Cleanup preserves the calling process and its ancestors during worktree removal. The caller’s active worktree is kept by default and can be removed with `--remove-caller-worktree`.
+- Cleanup refreshes process observations during worker churn and reports `process-churn` when it cannot verify that a worktree is safe to clean.
 
 ### CI
 

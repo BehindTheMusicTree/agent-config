@@ -340,7 +340,7 @@ class CleanReposTests(unittest.TestCase):
         self.assertTrue(self.remote_has(caller_branch))
 
     def assert_cwd_only_agent_during_remote_recheck_keeps_branch(
-        self, replace_launcher, replace_twice=False, agent_is_parent=False,
+        self, replace_launcher, replace_twice=False, agent_is_parent=False, terminal=False,
     ):
         branch = 'feature/late'
         path = self.add_worktree(branch, merged=True)
@@ -381,14 +381,32 @@ class CleanReposTests(unittest.TestCase):
                 command = f'exec "{intermediate}"'
         launcher = self.bin / ('codex' if agent_is_parent else 'launch-late-agent')
         launch_trigger = second_trigger if agent_is_parent and replace_twice else trigger
+        existing_worker = terminal and agent_is_parent and replace_launcher
+        if existing_worker:
+            waiting_worker = self.bin / 'waiting-worker'
+            waiting_worker.write_text(
+                f'#!/usr/bin/env bash\n'
+                f': > "{intermediate_ready}"\n'
+                f'read -r < "{launch_trigger}"\n'
+                f'{command}\n'
+            )
+            waiting_worker.chmod(0o755)
+            launcher_command = f'"{waiting_worker}" &\nwait'
+        else:
+            launcher_command = f'read -r < "{launch_trigger}"\n{command}'
         launcher.write_text(
             f'#!/usr/bin/env bash\n'
-            f'read -r < "{launch_trigger}"\n'
-            f'{command}\n'
+            f'{launcher_command}\n'
         )
         launcher.chmod(0o755)
         proc = subprocess.Popen([str(launcher)], cwd=self.root, start_new_session=True)
         self.procs.append(proc)
+        if existing_worker:
+            for _ in range(100):
+                if intermediate_ready.exists():
+                    break
+                time.sleep(0.05)
+            self.assertTrue(intermediate_ready.exists())
         first_listing = self.bin / 'first-listing'
         remote_recheck = self.bin / 'remote-recheck'
         real_git = shutil.which('git')
@@ -402,6 +420,9 @@ class CleanReposTests(unittest.TestCase):
             f'exec "{real_git}" "$@"\n'
         )
         git_shim.chmod(0o755)
+        if terminal:
+            self.simulate_agent_worker_churn(start_at=remote_recheck, stop_at=self.bin / 'trigger.sent')
+        first_cwd = self.bin / 'first-cwd'
         real_lsof = shutil.which('lsof')
         self.assertIsNotNone(real_lsof)
         shim = self.bin / 'lsof'
@@ -409,6 +430,13 @@ class CleanReposTests(unittest.TestCase):
             f'#!/usr/bin/env bash\n'
             f'if [[ ! -e "{remote_recheck}" ]]; then\n'
             f'  exec "{real_lsof}" "$@"\n'
+            f'fi\n'
+            f'if [[ "{int(terminal)}" == 1 ]]; then\n'
+            f'  if [[ "$*" == *" -p "* ]]; then exec "{real_lsof}" "$@"; fi\n'
+            f'  if [[ ! -e "{first_cwd}" ]]; then\n'
+            f'    touch "{first_cwd}"\n'
+            f'    exec "{real_lsof}" "$@"\n'
+            f'  fi\n'
             f'fi\n'
             f'flag="{trigger}"; wait_for="{intermediate_ready if replace_twice else ready}"\n'
             f'if [[ -e "$flag.sent" ]]; then\n'
@@ -429,7 +457,9 @@ class CleanReposTests(unittest.TestCase):
         shim.chmod(0o755)
         output = self.run_script('apply', '--remote-only')
         self.assertTrue(ready.exists(), output)
-        self.assertIn(f'skip-remote={branch} reason=agent-session', output)
+        reason = 'process-churn' if terminal else 'agent-session'
+        self.assertIn(f'skip-remote={branch} reason={reason}', output)
+        self.assertTrue(path.is_dir())
         self.assertTrue(self.remote_has(branch))
         self.assertIsNone(proc.poll())
 
@@ -451,6 +481,146 @@ class CleanReposTests(unittest.TestCase):
         self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(
             replace_launcher=False, replace_twice=True, agent_is_parent=True,
         )
+
+    def test_new_cwd_only_agent_child_after_terminal_cwd_scan_keeps_branch(self):
+        self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(
+            replace_launcher=False, agent_is_parent=True, terminal=True,
+        )
+
+    def test_cwd_only_agent_worker_exec_after_terminal_cwd_scan_keeps_branch(self):
+        self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(
+            replace_launcher=True, agent_is_parent=True, terminal=True,
+        )
+
+    def simulate_agent_worker_churn(self, start_at=None, stop_at=None):
+        counter = self.bin / 'process-count'
+        real_ps = shutil.which('ps')
+        shim = self.bin / 'ps'
+        start_guard = f'if [[ ! -e "{start_at}" ]]; then exit; fi\n' if start_at else ''
+        stop_guard = f'if [[ -e "{stop_at}" ]]; then exit; fi\n' if stop_at else ''
+        # Keep the real fixture processes and their ancestry so unrelated
+        # sessions on the test host cannot change the simulated timing.
+        shim.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'if [[ "$*" != *"lstart="* ]]; then exec "{real_ps}" "$@"; fi\n'
+            f'set -o pipefail\n'
+            f'"{real_ps}" "$@" | awk -v fixture={os.getpid()} \'\n'
+            '  { rows[$1] = $0; parents[$1] = $2 }\n'
+            '  END {\n'
+            '    for (p = fixture; p in parents; p = parents[p]) keep[p] = 1\n'
+            '    for (pid in rows) {\n'
+            '      for (p = pid; p in parents && p != fixture; p = parents[p]) {}\n'
+            '      if (p == fixture || pid in keep) print rows[pid]\n'
+            '    }\n'
+            "  }' || exit\n"
+            f'{start_guard}{stop_guard}'
+            f'count=0\n'
+            f'if [[ -f "{counter}" ]]; then read -r count < "{counter}"; fi\n'
+            f'printf "%s\\n" "$((count + 1))" > "{counter}"\n'
+            f'printf "980000000 1 S Mon Nov 23 16:00:00 2026 codex\\n"\n'
+            f'printf "%s 980000000 S Mon Nov 23 16:00:01 2026 worker\\n" "$((981000000 + count))"\n'
+        )
+        shim.chmod(0o755)
+        return counter
+
+    def install_churn_fixture(self, stable_at_refresh, cwd_at_refresh='outside'):
+        counter = self.simulate_agent_worker_churn()
+        real_lsof = shutil.which('lsof')
+        cwd_counter = self.bin / 'cwd-count'
+        shim = self.bin / 'lsof'
+        shim.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'if [[ "$*" == *" -p "* ]]; then exit 1; fi\n'
+            f'echo observation >> "{cwd_counter}"\n'
+            f'"{real_lsof}" "$@" || exit\n'
+            f'printf "p980000000\\ntDIR\\nn%s\\n" "{self.root}"\n'
+            f'if [[ "{int(stable_at_refresh)}" == 1 ]] && (( $(wc -l < "{cwd_counter}") % 2 == 0 )); then\n'
+            f'  read -r count < "{counter}"\n'
+            f'  count=$((count - 1))\n'
+            f'  printf "%s\\n" "$count" > "{counter}"\n'
+            f'  pid=$((981000000 + count))\n'
+            f'  case "{cwd_at_refresh}" in\n'
+            f'    outside) printf "p%s\\ntDIR\\nn%s\\n" "$pid" "{self.root}" ;;\n'
+            f'    readlink-error) printf "p%s\\ntunknown\\nn/proc/%s/cwd (readlink: Permission denied)\\n" "$pid" "$pid" ;;\n'
+            f'  esac\n'
+            f'fi\n'
+        )
+        shim.chmod(0o755)
+        return cwd_counter
+
+    def test_unrelated_worker_churn_reconciled_by_refresh_allows_removal(self):
+        path = self.add_worktree('feature/idle', merged=True)
+        cwd_counter = self.install_churn_fixture(stable_at_refresh=True)
+        output = self.run_script('apply', '--local-only')
+        self.assertIn(f'removed-worktree={path}', output)
+        self.assertFalse(path.exists())
+        self.assertGreaterEqual(len(cwd_counter.read_text().splitlines()), 3)
+
+    def test_unresolved_worker_churn_keeps_worktree_and_refs(self):
+        branch = 'feature/idle'
+        path = self.add_worktree(branch, merged=True)
+        cwd_counter = self.install_churn_fixture(stable_at_refresh=False)
+        output = self.run_script('apply')
+        self.assertIn(f'keep-worktree={path} branch={branch} reason=process-churn', output)
+        self.assertTrue(path.is_dir())
+        self.assertTrue(git(self.repo, 'branch', '--list', branch).strip())
+        self.assertTrue(self.remote_has(branch))
+        self.assertEqual(len(cwd_counter.read_text().splitlines()), 2)
+
+    def assert_stable_worker_with_unverified_cwd_keeps_worktree_and_refs(self, cwd_at_refresh):
+        branch = 'feature/idle'
+        path = self.add_worktree(branch, merged=True)
+        cwd_counter = self.install_churn_fixture(stable_at_refresh=True, cwd_at_refresh=cwd_at_refresh)
+        output = self.run_script('apply')
+        self.assertIn(f'keep-worktree={path} branch={branch} reason=process-churn', output)
+        self.assert_worktree_kept(path, branch)
+        self.assertTrue(self.remote_has(branch))
+        self.assertEqual(len(cwd_counter.read_text().splitlines()), 2)
+
+    def test_stable_worker_without_terminal_cwd_observation_keeps_worktree_and_refs(self):
+        self.assert_stable_worker_with_unverified_cwd_keeps_worktree_and_refs('missing')
+
+    def test_stable_worker_with_terminal_cwd_readlink_error_keeps_worktree_and_refs(self):
+        self.assert_stable_worker_with_unverified_cwd_keeps_worktree_and_refs('readlink-error')
+
+    def test_equivalent_worktree_with_unresolved_churn_reports_keep_reason(self):
+        branch = 'feature/c'
+        path = self.add_cherry_picked(branch)
+        self.install_churn_fixture(stable_at_refresh=False)
+        output = self.run_script('apply', '--remove-equivalent')
+        self.assertIn(f'keep-worktree={path} branch={branch} reason=process-churn', output)
+        self.assert_worktree_kept(path, branch)
+
+    def simulate_worker_churn_after_idle_check(self):
+        checked = self.bin / 'idle-checked'
+        self.simulate_agent_worker_churn(start_at=checked)
+        real_lsof = shutil.which('lsof')
+        shim = self.bin / 'lsof'
+        shim.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'if [[ "$*" == *" -p "* ]]; then exit 1; fi\n'
+            f'if [[ "$*" == *" +D "* ]]; then touch "{checked}"; fi\n'
+            f'exec "{real_lsof}" "$@"\n'
+        )
+        shim.chmod(0o755)
+
+    def test_stale_empty_worktree_reports_churn_at_apply_recheck(self):
+        branch = 'feature/stale'
+        path = self.add_empty_worktree(branch, days_old=30)
+        git(self.repo, 'push', '-q', 'origin', branch)
+        self.simulate_worker_churn_after_idle_check()
+        output = self.run_script('apply')
+        self.assertIn(f'skip-worktree={path} branch={branch} reason=process-churn', output)
+        self.assert_worktree_kept(path, branch)
+        self.assertTrue(self.remote_has(branch))
+
+    def test_equivalent_worktree_reports_churn_at_apply_recheck(self):
+        branch = 'feature/c'
+        path = self.add_cherry_picked(branch)
+        self.simulate_worker_churn_after_idle_check()
+        output = self.run_script('apply', '--remove-equivalent')
+        self.assertIn(f'skip-worktree={path} branch={branch} reason=process-churn', output)
+        self.assert_worktree_kept(path, branch)
 
     def test_removes_merged_worktree_with_colon_in_path(self):
         branch = 'feature/colon'

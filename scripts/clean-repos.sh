@@ -264,7 +264,7 @@ startup_chain() {
 read_cwd_records() {
   local output err status=0
   err="$(mktemp)" || return 1
-  output="$(lsof -a -d cwd -Fpn "$@" 2>"$err")" || status=$?
+  output="$(lsof -a -d cwd -Fptn "$@" 2>"$err")" || status=$?
   # A targeted query can find no cwd because a process just exited.
   if [[ -s "$err" ]] || (( status > 1 )); then rm -f "$err"; return 1; fi
   rm -f "$err"
@@ -276,12 +276,13 @@ process_table() {
 }
 
 classify_process_snapshot() {
-  local path="$1" physical="$2" nested="$3" previous="$4" cwd_records="$5" targeted_cwds="$6" table
+  local path="$1" physical="$2" nested="$3" previous="$4" cwd_records="$5" targeted_cwds="$6"
+  local terminal="$7" table
   # Read argv and process identity after the slower cwd query.
   table="$(process_table)" && [[ -n "$table" ]] || { echo unknown; return; }
 
   if ! printf '%s\n' "$previous" '@ps' "$table" '@cwd' "$cwd_records" "$targeted_cwds" | WT_PATH="$path" WT_REAL="$physical" \
-    WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" WT_NESTED="$nested" awk -v self="$$" -v q="'" '
+    WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" WT_NESTED="$nested" awk -v self="$$" -v q="'" -v terminal="$terminal" '
     function inside(n, p,    i) {
       if (!(n == p || index(n, p "/") == 1)) return 0
       for (i in child) if (child[i] != "" && (n == child[i] || index(n, child[i] "/") == 1)) return 0
@@ -354,13 +355,17 @@ classify_process_snapshot() {
       if (tab) requested[substr($0, 1, tab - 1)] = substr($0, tab + 1)
       next
     }
-    /^p[1-9][0-9]*$/ { pid = substr($0, 2); next }
-    /^n/ && pid {
+    /^p[1-9][0-9]*$/ { pid = substr($0, 2); directory = 0; next }
+    /^tDIR$/ { directory = 1; next }
+    /^n\// && pid {
+      dir = substr($0, 2)
+      matches = inside(dir, real) || (path != real && inside(dir, path))
+      if (matches || directory) cwd_match[pid] = matches
+      # lsof can put a read failure in the name field without a directory type.
+      if (!directory) next
       cwd_seen = 1
       if (phase == 4) checked_cwd[pid] = requested[pid]
-      else global_cwd[pid] = 1
-      dir = substr($0, 2)
-      cwd_match[pid] = inside(dir, real) || (path != real && inside(dir, path))
+      else cwd_observed[pid] = 1
     }
     END {
       if (invalid || !cwd_seen) exit 1
@@ -376,10 +381,9 @@ classify_process_snapshot() {
           if (pid != self && matches) caller = 1
           continue
         }
-        if (!matches && (previous[pid] == current[pid] || checked_cwd[pid] == current[pid])) continue
-        # A changed non-agent already seen by the global cwd scan needs a
-        # fresh read only if an earlier targeted scan also saw it change.
-        if (!matches && agent(command[pid]) == "" && !(pid in requested) && pid in global_cwd) continue
+        # The refresh can only resolve missing observations with a cwd record.
+        stable = previous[pid] == current[pid] && (!terminal || (pid in cwd_observed))
+        if (!matches && (stable || checked_cwd[pid] == current[pid])) continue
         hops = 0
         for (p = pid; p != 0 && !(p in own); p = parent[p]) {
           if (!(p in parent) || ++hops > count) {
@@ -407,7 +411,8 @@ classify_process_snapshot() {
 # only for ambiguous new processes and then take a fresh argv/ancestry snapshot.
 classify_worktree_processes() {
   local path="$1" physical previous cwd_records child nested=""
-  local state attempt kind pid identity extra pid_list requested targeted_cwds=""
+  local state attempt kind pid identity extra pid_list requested targeted_cwds="" terminal=0
+  local targeted_reads=4
   local -a unobserved=()
   [[ -n "$original_chain" ]] && command -v lsof >/dev/null 2>&1 || { echo unknown; return; }
   physical="$(canonical_path "$path")"
@@ -422,8 +427,17 @@ classify_worktree_processes() {
   fi
   previous="$(process_table)" && [[ -n "$previous" ]] || { echo unknown; return; }
   cwd_records="$(read_cwd_records)" && [[ -n "$cwd_records" ]] || { echo unknown; return; }
-  for ((attempt = 1; attempt <= 5; attempt++)); do
-    state="$(classify_process_snapshot "$path" "$physical" "$nested" "$previous" "$cwd_records" "$targeted_cwds")"
+  for ((attempt = 0; attempt <= targeted_reads + 1; attempt++)); do
+    if (( attempt > targeted_reads )); then
+      # Refresh cwd observations for workers that may have changed or
+      # appeared during targeted reads. The following ps can still see
+      # a new agent descendant whose cwd was never observed.
+      previous="$(process_table)" && [[ -n "$previous" ]] || { echo unknown; return; }
+      cwd_records="$(read_cwd_records)" && [[ -n "$cwd_records" ]] || { echo unknown; return; }
+      targeted_cwds=""
+      terminal=1
+    fi
+    state="$(classify_process_snapshot "$path" "$physical" "$nested" "$previous" "$cwd_records" "$targeted_cwds" "$terminal")"
     unobserved=()
     requested=""
     while IFS=$'\t' read -r kind pid identity; do
@@ -439,13 +453,13 @@ classify_worktree_processes() {
       printf '%s\n' "$state"
       return
     fi
-    if (( attempt < 5 )); then
+    if (( attempt < targeted_reads )); then
       pid_list="$(IFS=,; printf '%s' "${unobserved[*]}")"
       extra="$(read_cwd_records -p "$pid_list")" || { echo unknown; return; }
       targeted_cwds+=$'\n@targeted-identities\n'"$requested"$'@targeted-cwd\n'"$extra"
     fi
   done
-  echo unknown
+  echo process-churn
 }
 
 process_keep_reason() {
@@ -454,6 +468,7 @@ process_keep_reason() {
     case "$kind" in
       unknown) echo agent-session; return ;;
       agent) echo agent-session; return ;;
+      process-churn) echo process-churn; return ;;
     esac
   done <<< "$state"
   if ! $remove_caller_worktree && [[ $'\n'"$state"$'\n' == *$'\ncaller\n'* ]]; then
@@ -528,11 +543,9 @@ worktree_branch_proven_on_trunk() {
   branch_fully_cherry_merged "refs/heads/$1" || branch_adds_nothing_to_trunk "refs/heads/$1"
 }
 
-# Every proof that a worktree's content is already on trunk and nothing else
-# needs it: the content is on origin/<trunk>, the tree is clean, no open PR
-# (an unknown PR state fails closed) and no process uses it. br is empty for a
-# detached HEAD.
-worktree_is_equivalent() {
+# Check the Git conditions for equivalence before inspecting processes.
+# br is empty for a detached HEAD.
+worktree_equivalence_eligible() {
   local path="$1" ref="$2" br="$3"
   [[ -d "$path" ]] || return 1
   # Long-lived branches sit at or behind trunk, so they would always look
@@ -550,7 +563,7 @@ worktree_is_equivalent() {
     $open_prs_known || return 1
     [[ -z "${open_pr_number[$br]:-}" ]] || return 1
   fi
-  worktree_is_idle "$path" "${4-$(classify_worktree_processes "$path")}"
+  return 0
 }
 
 # One-line description of a worktree's uncommitted state, so the user can tell
@@ -1021,12 +1034,6 @@ for repo in "$git_root"/*/; do
       protected_branches+=("$br")
     fi
   done
-  if [[ ${#active_branches[@]} -gt 0 ]]; then
-    # Deleting the remote branch of a live session would break its next push.
-    tmp=()
-    for b in "${kept_remote[@]}"; do contains "$b" "${active_branches[@]}" || tmp+=("$b"); done
-    kept_remote=("${tmp[@]}")
-  fi
   if [[ ${#protected_branches[@]} -gt 0 ]]; then
     tmp=()
     for b in "${kept_local[@]}"; do contains "$b" "${protected_branches[@]}" || tmp+=("$b"); done
@@ -1067,12 +1074,22 @@ for repo in "$git_root"/*/; do
       contains "$path:$br" "${new_empty_worktrees[@]}" && continue
       contains "$path:$br" "${stale_empty_worktrees[@]}" && continue
       contains "$path:$br" "${active_worktrees[@]}" && continue
-      if worktree_is_equivalent "$path" "refs/heads/$br" "$br"; then
-        equivalent_worktrees+=("$path:$br")
-        equivalent_branches+=("$br")
-        equivalent_refs+=("refs/heads/$br")
-        equivalent_details+=("$(unmerged_worktree_summary "$path" "refs/heads/$br" "$br")")
-        continue
+      if worktree_equivalence_eligible "$path" "refs/heads/$br" "$br"; then
+        state="$(classify_worktree_processes "$path")"
+        if [[ "$state" == process-churn ]]; then
+          active_worktrees+=("$path:$br")
+          active_branches+=("$br")
+          active_details+=("")
+          active_reasons+=(process-churn)
+          continue
+        fi
+        if worktree_is_idle "$path" "$state"; then
+          equivalent_worktrees+=("$path:$br")
+          equivalent_branches+=("$br")
+          equivalent_refs+=("refs/heads/$br")
+          equivalent_details+=("$(unmerged_worktree_summary "$path" "refs/heads/$br" "$br")")
+          continue
+        fi
       fi
       unmerged_worktrees+=("$path:$br")
       unmerged_branches+=("$br")
@@ -1091,7 +1108,7 @@ for repo in "$git_root"/*/; do
         active_reasons+=("$reason")
         continue
       fi
-      if worktree_is_equivalent "$path" "$sha" "" "$state"; then
+      if worktree_equivalence_eligible "$path" "$sha" "" && worktree_is_idle "$path" "$state"; then
         equivalent_worktrees+=("$path:(detached ${sha:0:7})")
         equivalent_branches+=("")
         equivalent_refs+=("$sha")
@@ -1102,6 +1119,13 @@ for repo in "$git_root"/*/; do
       unmerged_branches+=("")
       unmerged_details+=("$(unmerged_worktree_summary "$path" "$sha" "")")
     done
+  fi
+
+  if [[ ${#active_branches[@]} -gt 0 ]]; then
+    # Deleting the remote branch of a live session would break its next push.
+    tmp=()
+    for b in "${kept_remote[@]}"; do contains "$b" "${active_branches[@]}" || tmp+=("$b"); done
+    kept_remote=("${tmp[@]}")
   fi
 
   # Scan predicts the recaps of branches apply will delete; apply re-derives
@@ -1145,11 +1169,11 @@ for repo in "$git_root"/*/; do
       [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%:*}: $pids"
     done
     for i in "${!active_worktrees[@]}"; do
-      if [[ "${active_reasons[$i]}" == caller-worktree ]]; then
-        echo "  caller-worktree (caller uses it, worktree and branch kept): ${active_worktrees[$i]}"
-      else
-        echo "  agent-session (worktree and branch kept): ${active_worktrees[$i]} [pid:agent=${active_details[$i]% }]"
-      fi
+      case "${active_reasons[$i]}" in
+        caller-worktree) echo "  caller-worktree (caller uses it, worktree and branch kept): ${active_worktrees[$i]}" ;;
+        process-churn) echo "  process-churn (cwd observation incomplete, worktree and branch kept): ${active_worktrees[$i]}" ;;
+        agent-session) echo "  agent-session (worktree and branch kept): ${active_worktrees[$i]} [pid:agent=${active_details[$i]% }]" ;;
+      esac
     done
     for i in "${!dirty_worktrees[@]}"; do
       echo "  dirty-worktree (uncommitted changes, branch kept, not touched): ${dirty_worktrees[$i]} [${dirty_details[$i]}]"
@@ -1172,11 +1196,14 @@ for repo in "$git_root"/*/; do
       br="${wt##*:}"
       # Re-check right before acting: the worktree may have been picked up
       # since the scan. Never kill anything here; an in-use one is skipped.
+      state=""
       if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]] \
          || ! worktree_branch_is_new_empty "$br" \
-         || ! worktree_is_stale_empty "$br" "$path" "$(classify_worktree_processes "$path")"; then
+         || ! { state="$(classify_worktree_processes "$path")"; worktree_is_stale_empty "$br" "$path" "$state"; }; then
         late_protected["$br"]=1
-        echo "repo=$name skip-worktree=$path branch=$br reason=stale-empty-changed"
+        reason=stale-empty-changed
+        [[ "$state" == process-churn ]] && reason=process-churn
+        echo "repo=$name skip-worktree=$path branch=$br reason=$reason"
         skipped=$((skipped + 1))
         continue
       fi
@@ -1222,9 +1249,13 @@ for repo in "$git_root"/*/; do
         continue
       fi
       # The bucket was derived moments ago in this run; re-prove right before acting.
-      if ! worktree_is_equivalent "$path" "${equivalent_refs[$i]}" "$br"; then
+      state=""
+      if ! worktree_equivalence_eligible "$path" "${equivalent_refs[$i]}" "$br" \
+         || ! { state="$(classify_worktree_processes "$path")"; worktree_is_idle "$path" "$state"; }; then
         if [[ -n "$br" ]]; then late_protected["$br"]=1; fi
-        echo "repo=$name skip-worktree=$path branch=${ew##*:} reason=equivalent-changed"
+        reason=equivalent-changed
+        [[ "$state" == process-churn ]] && reason=process-churn
+        echo "repo=$name skip-worktree=$path branch=${ew##*:} reason=$reason"
         skipped=$((skipped + 1))
         continue
       fi
