@@ -377,10 +377,9 @@ classify_process_snapshot() {
           continue
         }
         if (!matches && (previous[pid] == current[pid] || checked_cwd[pid] == current[pid])) continue
-        # Reconcile descendants missing from the global cwd scan once.
-        # Follow up on those PIDs and new agents during the targeted scans.
-        if (!matches && agent(command[pid]) == "" && !(pid in requested) &&
-            (phase == 4 || pid in global_cwd)) continue
+        # A changed non-agent already seen by the global cwd scan needs a
+        # fresh read only if an earlier targeted scan also saw it change.
+        if (!matches && agent(command[pid]) == "" && !(pid in requested) && pid in global_cwd) continue
         hops = 0
         for (p = pid; p != 0 && !(p in own); p = parent[p]) {
           if (!(p in parent) || ++hops > count) {
@@ -423,7 +422,7 @@ classify_worktree_processes() {
   fi
   previous="$(process_table)" && [[ -n "$previous" ]] || { echo unknown; return; }
   cwd_records="$(read_cwd_records)" && [[ -n "$cwd_records" ]] || { echo unknown; return; }
-  for attempt in 1 2 3; do
+  for ((attempt = 1; attempt <= 5; attempt++)); do
     state="$(classify_process_snapshot "$path" "$physical" "$nested" "$previous" "$cwd_records" "$targeted_cwds")"
     unobserved=()
     requested=""
@@ -440,7 +439,7 @@ classify_worktree_processes() {
       printf '%s\n' "$state"
       return
     fi
-    if (( attempt < 3 )); then
+    if (( attempt < 5 )); then
       pid_list="$(IFS=,; printf '%s' "${unobserved[*]}")"
       extra="$(read_cwd_records -p "$pid_list")" || { echo unknown; return; }
       targeted_cwds+=$'\n@targeted-identities\n'"$requested"$'@targeted-cwd\n'"$extra"

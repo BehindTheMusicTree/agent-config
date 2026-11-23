@@ -345,6 +345,7 @@ class CleanReposTests(unittest.TestCase):
         branch = 'feature/late'
         path = self.add_worktree(branch, merged=True)
         trigger = self.bin / 'trigger'
+        os.mkfifo(trigger)
         ready = self.bin / 'ready'
         stub = self.bin / ('worker' if agent_is_parent else 'codex')
         fifo = self.bin / 'hold-agent'
@@ -352,22 +353,37 @@ class CleanReposTests(unittest.TestCase):
         stub.write_text(f'#!/usr/bin/env bash\n: > "{ready}"\nexec 3<> "{fifo}"\nread -r <&3\n')
         stub.chmod(0o755)
         second_trigger = self.bin / 'second-trigger'
+        os.mkfifo(second_trigger)
         intermediate_ready = self.bin / 'intermediate-ready'
         command = f'cd "{path}" && {"exec " if replace_launcher else ""}"{stub}"'
         if replace_twice:
             intermediate = self.bin / 'claude'
+            if agent_is_parent:
+                next_command = f'exec 3<> "{fifo}"\nread -r <&3'
+            else:
+                next_command = f'read -r < "{second_trigger}"\n{command}'
             intermediate.write_text(
                 f'#!/usr/bin/env bash\n'
                 f': > "{intermediate_ready}"\n'
-                f'until [[ -e "{second_trigger}" ]]; do sleep 0.05; done\n'
-                f'{command}\n'
+                f'{next_command}\n'
             )
             intermediate.chmod(0o755)
-            command = f'exec "{intermediate}"'
+            if agent_is_parent:
+                ambiguity = self.bin / 'launch-intermediate'
+                ambiguity.write_text(
+                    f'#!/usr/bin/env bash\n'
+                    f'read -r < "{trigger}"\n'
+                    f'exec "{intermediate}"\n'
+                )
+                ambiguity.chmod(0o755)
+                self.procs.append(subprocess.Popen([str(ambiguity)], cwd=self.root, start_new_session=True))
+            else:
+                command = f'exec "{intermediate}"'
         launcher = self.bin / ('codex' if agent_is_parent else 'launch-late-agent')
+        launch_trigger = second_trigger if agent_is_parent and replace_twice else trigger
         launcher.write_text(
             f'#!/usr/bin/env bash\n'
-            f'until [[ -e "{trigger}" ]]; do sleep 0.05; done\n'
+            f'read -r < "{launch_trigger}"\n'
             f'{command}\n'
         )
         launcher.chmod(0o755)
@@ -395,14 +411,15 @@ class CleanReposTests(unittest.TestCase):
             f'  exec "{real_lsof}" "$@"\n'
             f'fi\n'
             f'flag="{trigger}"; wait_for="{intermediate_ready if replace_twice else ready}"\n'
-            f'if [[ -e "$flag" ]]; then\n'
+            f'if [[ -e "$flag.sent" ]]; then\n'
             f'  flag="{second_trigger}"; wait_for="{ready}"\n'
-            f'  if [[ "{int(replace_twice)}" == 0 || -e "$flag" || "$*" != *" -p "* ]]; then\n'
+            f'  if [[ "{int(replace_twice)}" == 0 || -e "$flag.sent" || "$*" != *" -p "* ]]; then\n'
             f'    exec "{real_lsof}" "$@"\n'
             f'  fi\n'
             f'fi\n'
             f'snapshot="$("{real_lsof}" "$@")" || exit\n'
-            f'touch "$flag"\n'
+            f': > "$flag.sent"\n'
+            f'printf "\\n" > "$flag"\n'
             f'for _ in {{1..100}}; do\n'
             f'  if [[ -e "$wait_for" ]]; then printf \'%s\\n\' "$snapshot"; exit; fi\n'
             f'  sleep 0.05\n'
@@ -411,7 +428,7 @@ class CleanReposTests(unittest.TestCase):
         )
         shim.chmod(0o755)
         output = self.run_script('apply', '--remote-only')
-        self.assertTrue(ready.exists())
+        self.assertTrue(ready.exists(), output)
         self.assertIn(f'skip-remote={branch} reason=agent-session', output)
         self.assertTrue(self.remote_has(branch))
         self.assertIsNone(proc.poll())
@@ -429,6 +446,11 @@ class CleanReposTests(unittest.TestCase):
 
     def test_cwd_only_agent_exec_during_targeted_recheck_keeps_branch(self):
         self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(replace_launcher=True, replace_twice=True)
+
+    def test_new_cwd_only_agent_child_during_targeted_recheck_keeps_branch(self):
+        self.assert_cwd_only_agent_during_remote_recheck_keeps_branch(
+            replace_launcher=False, replace_twice=True, agent_is_parent=True,
+        )
 
     def test_removes_merged_worktree_with_colon_in_path(self):
         branch = 'feature/colon'
