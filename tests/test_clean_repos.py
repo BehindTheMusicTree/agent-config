@@ -83,8 +83,8 @@ class CleanReposTests(unittest.TestCase):
                 pass
             proc.wait()
 
-    def add_worktree(self, branch, merged):
-        path = self.repo / '.claude' / 'worktrees' / branch.replace('/', '-')
+    def add_worktree(self, branch, merged, slug=None):
+        path = self.repo / '.claude' / 'worktrees' / (slug or branch.replace('/', '-'))
         git(self.repo, 'worktree', 'add', '-q', '-b', branch, str(path), 'main')
         (path / 'work.txt').write_text(f'{branch}\n')
         git(path, 'add', '.')
@@ -311,6 +311,44 @@ class CleanReposTests(unittest.TestCase):
         path = self.add_worktree(branch, merged=True)
         output = self.run_as_codex(path, 'apply', '--remote-only', via_wrapper=False, cwd=self.root)
         self.assertIn('reason=caller-worktree', output)
+        self.assertTrue(self.remote_has(branch))
+
+    def test_primary_checkout_keeps_active_callers_remote(self):
+        branch = 'feature/caller'
+        linked = self.add_worktree(branch, merged=True)
+        git(self.repo, 'worktree', 'remove', str(linked))
+        git(self.repo, 'switch', branch)
+        output = self.run_as_codex(self.repo, 'apply', '--remote-only')
+        self.assertIn('reason=caller-worktree', output)
+        self.assertTrue(self.remote_has(branch))
+
+    def test_removes_merged_worktree_with_colon_in_path(self):
+        branch = 'feature/colon'
+        path = self.add_worktree(branch, merged=True, slug='feature:colon')
+        self.assertIn(f'worktrees: {path}:{branch}', self.run_script('scan'))
+        self.assertIn(f'removed-worktree={path}', self.run_script('apply'))
+        self.assertFalse(path.exists())
+
+    def test_rechecks_new_checkout_before_remote_deletion(self):
+        branch = 'feature/late'
+        path = self.add_worktree(branch, merged=True)
+        git(self.repo, 'worktree', 'remove', str(path))
+        agent = self.start_agent('codex', self.root, '--cd', str(path))
+        real_git = shutil.which('git')
+        shim = self.bin / 'git'
+        shim.write_text(
+            f'#!/usr/bin/env bash\n'
+            f'if [[ "$1 $2" == "worktree list" && ! -d "{path}" ]]; then\n'
+            f'  "{real_git}" "$@" || exit\n'
+            f'  exec "{real_git}" worktree add -q "{path}" "{branch}"\n'
+            f'fi\n'
+            f'exec "{real_git}" "$@"\n'
+        )
+        shim.chmod(0o755)
+        output = self.run_script('apply', '--remote-only')
+        self.assertIn(f'skip-remote={branch} reason=agent-session', output)
+        self.assertIsNone(agent.poll())
+        self.assert_worktree_kept(path, branch)
         self.assertTrue(self.remote_has(branch))
 
     def start_term_worker(self, path, *on_term):

@@ -267,8 +267,6 @@ classify_worktree_processes() {
   local path="$1" physical table cwd_records err
   [[ -n "$original_chain" ]] && command -v lsof >/dev/null 2>&1 || { echo unknown; return; }
   physical="$(canonical_path "$path")"
-  table="$(LC_ALL=C ps -ww -axo pid=,ppid=,stat=,lstart=,command= 2>/dev/null)" && [[ -n "$table" ]] \
-    || { echo unknown; return; }
   err="$(mktemp)" || { echo unknown; return; }
   if ! cwd_records="$(lsof -a -d cwd -Fpn 2>"$err")" || [[ -s "$err" || -z "$cwd_records" ]]; then
     rm -f "$err"
@@ -276,6 +274,9 @@ classify_worktree_processes() {
     return
   fi
   rm -f "$err"
+  # Read argv and process identity after the slower cwd query.
+  table="$(LC_ALL=C ps -ww -axo pid=,ppid=,stat=,lstart=,command= 2>/dev/null)" && [[ -n "$table" ]] \
+    || { echo unknown; return; }
 
   if ! printf '%s\n' "$table" '@cwd' "$cwd_records" | WT_PATH="$path" WT_REAL="$physical" \
     WT_ENTRY="$entry_cwd" WT_CHAIN="$original_chain" awk -v self="$$" -v q="'" '
@@ -654,6 +655,45 @@ stale_handoffs() {
              find "$common/agent-plans" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null; } | sort -z)
 }
 
+# Include the primary checkout when protecting refs. Only linked worktrees
+# enter the worktree deletion lists.
+read_worktrees() {
+  local list line br current_path="" current_head=""
+  list="$(git worktree list --porcelain 2>/dev/null)" && [[ -n "$list" ]] || return 1
+  worktree_paths=()
+  worktree_branches=()
+  detached_paths=()
+  detached_heads=()
+  while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+      current_path="${line#worktree }"
+      current_head=""
+    elif [[ "$line" == HEAD\ * ]]; then
+      current_head="${line#HEAD }"
+    elif [[ "$line" == detached ]]; then
+      if [[ "$current_path" != "$repo" ]]; then
+        detached_paths+=("$current_path")
+        detached_heads+=("$current_head")
+      fi
+    elif [[ "$line" == branch\ refs/heads/* ]]; then
+      br="${line#branch refs/heads/}"
+      worktree_paths+=("$current_path")
+      worktree_branches+=("$br")
+    fi
+  done <<< "$list"
+
+}
+
+branch_worktree_paths() {
+  local branch="$1" i
+  read_worktrees || return 1
+  for i in "${!worktree_branches[@]}"; do
+    if [[ "${worktree_branches[$i]}" == "$branch" ]]; then
+      printf '%s\n' "${worktree_paths[$i]}"
+    fi
+  done
+}
+
 original_chain="$(startup_chain)" || original_chain=""
 
 scanned=0; with_candidates=0; clean=0; errors=0; unmerged_total=0; kept_unmerged=0
@@ -816,33 +856,11 @@ for repo in "$git_root"/*/; do
     remote_candidates=()
   fi
 
-  # Every linked worktree (skip the main worktree, i.e. $repo itself); read
-  # before filtering candidates so an excluded path can protect its branch.
-  worktree_paths=()
-  worktree_branches=()
-  detached_paths=()
-  detached_heads=()
-  current_path=""
-  current_head=""
-  while IFS= read -r line; do
-    if [[ "$line" == worktree\ * ]]; then
-      current_path="${line#worktree }"
-      current_head=""
-    elif [[ "$line" == HEAD\ * ]]; then
-      current_head="${line#HEAD }"
-    elif [[ "$line" == detached ]]; then
-      if [[ "$current_path" != "$repo" ]]; then
-        detached_paths+=("$current_path")
-        detached_heads+=("$current_head")
-      fi
-    elif [[ "$line" == branch\ refs/heads/* ]]; then
-      br="${line#branch refs/heads/}"
-      if [[ "$current_path" != "$repo" ]]; then
-        worktree_paths+=("$current_path")
-        worktree_branches+=("$br")
-      fi
-    fi
-  done < <(git worktree list --porcelain)
+  if ! read_worktrees; then
+    echo "repo=$name status=worktree-list-failed"
+    errors=$((errors + 1))
+    continue
+  fi
 
   repo_excludes=("${excludes[@]}")
   for i in "${!worktree_paths[@]}"; do
@@ -885,13 +903,12 @@ for repo in "$git_root"/*/; do
   active_worktrees=()
   active_details=()
   active_reasons=()
-  declare -A process_states=() linked_paths=() late_protected=()
+  declare -A process_states=() late_protected=()
   active_branches=()
   protected_branches=()
   for i in "${!worktree_branches[@]}"; do
     br="${worktree_branches[$i]}"
     path="${worktree_paths[$i]}"
-    linked_paths["$br"]="$path"
     local_candidate=false
     if contains "$br" "${kept_local[@]}" || contains "$br" "${kept_local_squash_verified[@]}" \
       || contains "$br" "${kept_local_squash_unverified[@]}"; then
@@ -943,6 +960,7 @@ for repo in "$git_root"/*/; do
 
   worktree_removals=()
   for i in "${!worktree_branches[@]}"; do
+    [[ "${worktree_paths[$i]}" != "$repo" ]] || continue
     br="${worktree_branches[$i]}"
     (contains "$br" "${kept_local[@]}" || contains "$br" "${kept_local_squash_verified[@]}" \
      || contains "$br" "${kept_local_squash_unverified[@]}") \
@@ -961,6 +979,7 @@ for repo in "$git_root"/*/; do
     for i in "${!worktree_branches[@]}"; do
       br="${worktree_branches[$i]}"
       path="${worktree_paths[$i]}"
+      [[ "$path" != "$repo" ]] || continue
       contains "$br" "${repo_excludes[@]}" && continue
       contains "$path:$br" "${worktree_removals[@]}" && continue
       contains "$path:$br" "${dirty_worktrees[@]}" && continue
@@ -1010,7 +1029,7 @@ for repo in "$git_root"/*/; do
   handoff_reasons=()
   if ! $keep_handoffs && ! $remote_only; then
     apply_deletes=("${kept_local[@]}" "${kept_local_squash_verified[@]}")
-    for wt in "${stale_empty_worktrees[@]}"; do apply_deletes+=("${wt#*:}"); done
+    for wt in "${stale_empty_worktrees[@]}"; do apply_deletes+=("${wt##*:}"); done
     $remove_equivalent && for b in "${equivalent_branches[@]}"; do [[ -n "$b" ]] && apply_deletes+=("$b"); done
     while IFS=$'\t' read -r f r; do
       handoff_removals+=("$f")
@@ -1040,9 +1059,9 @@ for repo in "$git_root"/*/; do
     [[ ${#kept_remote[@]} -gt 0 ]] && echo "  remote: ${kept_remote[*]}"
     [[ ${#worktree_removals[@]} -gt 0 ]] && echo "  worktrees: ${worktree_removals[*]}"
     for wt in "${worktree_removals[@]}"; do
-      path="${wt%%:*}"
+      path="${wt%:*}"
       pids="$(show_processes "${process_states[$path]}")"
-      [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%%:*}: $pids"
+      [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%:*}: $pids"
     done
     for i in "${!active_worktrees[@]}"; do
       if [[ "${active_reasons[$i]}" == caller-worktree ]]; then
@@ -1068,8 +1087,8 @@ for repo in "$git_root"/*/; do
     done
   else
     for wt in "${stale_empty_worktrees[@]}"; do
-      path="${wt%%:*}"
-      br="${wt#*:}"
+      path="${wt%:*}"
+      br="${wt##*:}"
       # Re-check right before acting: the worktree may have been picked up
       # since the scan. Never kill anything here; an in-use one is skipped.
       if [[ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]] \
@@ -1096,8 +1115,8 @@ for repo in "$git_root"/*/; do
       fi
     done
     for wt in "${worktree_removals[@]}"; do
-      path="${wt%%:*}"
-      br="${wt#*:}"
+      path="${wt%:*}"
+      br="${wt##*:}"
       if ! stop_worktree_processes "$path"; then
         late_protected["$br"]=1
         echo "repo=$name skip-worktree=$path branch=$br reason=$stop_reason"
@@ -1114,17 +1133,17 @@ for repo in "$git_root"/*/; do
     done
     for i in "${!equivalent_worktrees[@]}"; do
       ew="${equivalent_worktrees[$i]}"
-      path="${ew%%:*}"
+      path="${ew%:*}"
       br="${equivalent_branches[$i]}"
       if ! $remove_equivalent; then
-        echo "repo=$name keep-worktree=$path branch=${ew#*:} reason=equivalent-not-enabled ${equivalent_details[$i]}"
+        echo "repo=$name keep-worktree=$path branch=${ew##*:} reason=equivalent-not-enabled ${equivalent_details[$i]}"
         kept_unmerged=$((kept_unmerged + 1))
         continue
       fi
       # The bucket was derived moments ago in this run; re-prove right before acting.
       if ! worktree_is_equivalent "$path" "${equivalent_refs[$i]}" "$br"; then
         if [[ -n "$br" ]]; then late_protected["$br"]=1; fi
-        echo "repo=$name skip-worktree=$path branch=${ew#*:} reason=equivalent-changed"
+        echo "repo=$name skip-worktree=$path branch=${ew##*:} reason=equivalent-changed"
         skipped=$((skipped + 1))
         continue
       fi
@@ -1147,17 +1166,17 @@ for repo in "$git_root"/*/; do
     for i in "${!active_worktrees[@]}"; do
       aw="${active_worktrees[$i]}"
       details="${active_details[$i]% }"
-      echo "repo=$name keep-worktree=${aw%%:*} branch=${aw#*:} reason=${active_reasons[$i]}${details:+ [$details]}"
+      echo "repo=$name keep-worktree=${aw%:*} branch=${aw##*:} reason=${active_reasons[$i]}${details:+ [$details]}"
       skipped=$((skipped + 1))
     done
     for i in "${!dirty_worktrees[@]}"; do
       dw="${dirty_worktrees[$i]}"
-      echo "repo=$name skip-worktree=${dw%%:*} branch=${dw#*:} reason=${dirty_reasons[$i]}"
+      echo "repo=$name skip-worktree=${dw%:*} branch=${dw##*:} reason=${dirty_reasons[$i]}"
       skipped=$((skipped + 1))
     done
     for i in "${!unmerged_worktrees[@]}"; do
       uw="${unmerged_worktrees[$i]}"
-      echo "repo=$name keep-worktree=${uw%%:*} branch=${uw#*:} reason=unmerged-worktree ${unmerged_details[$i]}"
+      echo "repo=$name keep-worktree=${uw%:*} branch=${uw##*:} reason=unmerged-worktree ${unmerged_details[$i]}"
       kept_unmerged=$((kept_unmerged + 1))
     done
     for b in "${kept_local[@]}"; do
@@ -1212,15 +1231,20 @@ for repo in "$git_root"/*/; do
     fi
     for b in "${kept_remote[@]}"; do
       [[ -z "${late_protected[$b]:-}" ]] || continue
-      path="${linked_paths[$b]:-}"
-      if [[ -n "$path" && -d "$path" ]]; then
+      if ! paths="$(branch_worktree_paths "$b")"; then
+        echo "repo=$name skip-remote=$b reason=worktree-list-failed"
+        skipped=$((skipped + 1))
+        continue
+      fi
+      while IFS= read -r path; do
+        [[ -n "$path" && -d "$path" ]] || continue
         reason="$(process_keep_reason "$(classify_worktree_processes "$path")")"
         if [[ -n "$reason" ]]; then
           echo "repo=$name skip-remote=$b reason=$reason"
           skipped=$((skipped + 1))
-          continue
+          continue 2
         fi
-      fi
+      done <<< "$paths"
       if git push origin --delete "$b" >/dev/null 2>&1; then
         echo "repo=$name deleted-remote=$b"
         deleted_remote=$((deleted_remote + 1))
