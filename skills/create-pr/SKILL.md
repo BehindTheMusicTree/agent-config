@@ -17,7 +17,7 @@ Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. It owns the intent/depth c
 python3 "$SKILL_REPO_ROOT/scripts/pr-context.py" --github [--base <ref>] [--intent <intent>] [--depth <depth>]
 ```
 
-Use the JSON’s `flow`, `branch_prefix`, `pr_template`, `merge_method`, `base_ref`, pinned SHAs, commit subjects, changed files, and separate worktree state. The script reuses the branch detector and reads `origin/<trunk>` without fetching; pass `--base <ref>` for an explicit base. Resolve the PR target branch from that base. Commits remain the source of truth. Counts marked `omitted` require targeted Git reads before conclusions about the complete change. `--validation-log <path>` references existing evidence without certifying test success.
+Use the JSON’s `flow`, `branch_prefix`, `pr_template`, `merge_method`, `release_please`, `base_ref`, pinned SHAs, commit subjects, changed files, and separate worktree state. The script reuses the branch detector and reads `origin/<trunk>` without fetching; pass `--base <ref>` for an explicit base. Resolve the PR target branch from that base. Commits remain the source of truth. Counts marked `omitted` require targeted Git reads before conclusions about the complete change. `--validation-log <path>` references existing evidence without certifying test success.
 
 ## Step 2 — Branch prefix (Gitflow only)
 
@@ -33,7 +33,7 @@ Otherwise propose a name (`feature/` for new work, `hotfix/` only if cut from `m
 
 ## Step 3 — Changelog
 
-Skip for `back-merge`, and when the repo has a release-please config (`release-please-config.json` or `.release-please-manifest.json`): the changelog is generated from the PR title. Otherwise, if a changelog exists (`CHANGELOG.md`, `HISTORY.md`, …) and doesn't cover this branch, add an entry in the file’s existing format without asking, under `[Unreleased]`: one plain-language line describing the effect for users/devs, not a commit message.
+Skip for `back-merge`, and when the JSON’s `release_please` is not `none`: the changelog is generated from the PR title. Otherwise, if a changelog exists (`CHANGELOG.md`, `HISTORY.md`, …) and doesn't cover this branch, add an entry in the file’s existing format without asking, under `[Unreleased]`: one plain-language line describing the effect for users/devs, not a commit message.
 
 ## Step 4 — CLAUDE.md
 
@@ -63,7 +63,7 @@ Fill every section; mark N/A sections as such rather than deleting the heading.
 
 ## Step 7 — Title
 
-Conventional Commits, ≤72 chars: `<type>(<scope>): <description>`, type ∈ `feat fix refactor chore docs test perf ci build style`, chosen by the dominant change.
+Conventional Commits, ≤72 chars: `<type>(<scope>): <description>`, type ∈ `feat fix refactor chore docs test perf ci build style`, chosen by the dominant change. When `release_please` is not `none`, the title also sets the version: apply the policy's **Release-please repositories** section.
 
 ## Step 8 — Save the body
 
@@ -116,4 +116,5 @@ Don't print the body.
 5. Tests/docs added, if any
 6. **PR URL**
 7. Auto-merge: enabled (method) or skipped (reason)
-8. Intent/depth, review findings, validation evidence reused/run, and remaining limitations
+8. Expected release: `vX.Y.Z` when `release_please` is `auto_merge` and the title type is releasable, otherwise none
+9. Intent/depth, review findings, validation evidence reused/run, and remaining limitations
