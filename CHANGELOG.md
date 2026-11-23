@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-11-23
+
 ### Added
 
 - `pr-context.py` reports `release_please` (`none`, `manual` or `auto_merge`) from the base commit, and the PR policy gains a "Release-please repositories" section: the PR title sets the version, an auto-merged release is announced with its expected version, and a repository without release-please gets no release announcement.
