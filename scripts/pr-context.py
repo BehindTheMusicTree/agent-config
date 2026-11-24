@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Collect bounded, read-only Git facts for a PR; never infer validation success."""
 import argparse
+from itertools import chain
 import json
 from pathlib import Path
 import re
@@ -132,7 +133,8 @@ def contributing_at_pr_head(head):
 
 def verify_btmt_branch_rules(owner, repo, target, method):
     endpoint = f'repos/{owner}/{repo}'
-    for rule in github_json(f'{endpoint}/rules/branches/{quote(target, safe="")}'):
+    pages = github_json('--paginate', '--slurp', f'{endpoint}/rules/branches/{quote(target, safe="")}')
+    for rule in chain.from_iterable(pages):
         blocked = (
             rule['type'] == 'merge_queue'
             or (rule['type'] == 'pull_request' and method not in rule['parameters']['allowed_merge_methods'])

@@ -148,7 +148,7 @@ class PrContextTests(unittest.TestCase):
             responses = [flags, develop]
             if intent == 'back-merge':
                 responses += [('ok', '{"merge_base_commit":{"sha":"456"}}'), ('ok', '{"status":"diverged"}')]
-            responses += [('ok', '[]'), classic]
+            responses += [('ok', '[[]]'), classic]
             with self.subTest(source=source), patch.object(pr_context, 'gh_api', side_effect=responses):
                 self.assertEqual(pr_context.merge_method(self.root, source, target, intent, {'sha': '123'}), expected)
 
@@ -170,12 +170,12 @@ class PrContextTests(unittest.TestCase):
                     pr_context.merge_method(self.root, source, target, intent)
 
         flags = ('ok', '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true}')
-        rule = ('ok', '[{"type":"required_linear_history","ruleset_id":71}]')
+        rule = ('ok', '[[],[{"type":"required_linear_history","ruleset_id":71}]]')
         with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, rule]):
             with self.assertRaisesRegex(ValueError, 'ruleset 71 on main blocks .* merge'):
                 pr_context.merge_method(self.root, *route)
         classic = ('ok', '{"data":{"repository":{"ref":{"branchProtectionRule":{"requiresLinearHistory":true}}}}}')
-        with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, ('ok', '[]'), classic]):
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, ('ok', '[[]]'), classic]):
             with self.assertRaisesRegex(ValueError, 'Classic branch protection'):
                 pr_context.merge_method(self.root, *route)
         with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, ValueError('GitHub read failed')]):
@@ -187,7 +187,7 @@ class PrContextTests(unittest.TestCase):
         pr = {'head': {'ref': 'release/2.1.0', 'sha': '123'}, 'base': {'ref': 'main'}, 'state': 'open'}
         flags = ('ok', '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true}')
         classic = ('ok', '{"data":{"repository":{"ref":{"branchProtectionRule":null}}}}')
-        responses = [('ok', json.dumps(pr)), flags, ('ok', '{"ref":"refs/heads/develop"}'), ('ok', '[]'), classic]
+        responses = [('ok', json.dumps(pr)), flags, ('ok', '{"ref":"refs/heads/develop"}'), ('ok', '[[]]'), classic]
         with patch.object(pr_context, 'gh_api', side_effect=responses) as gh:
             result = pr_context.existing_pr_policy(self.root, 42, 'release')
         self.assertEqual(result, {
@@ -195,7 +195,7 @@ class PrContextTests(unittest.TestCase):
         })
         gh.assert_any_call('repos/BehindTheMusicTree/app/pulls/42')
         gh.assert_any_call('repos/BehindTheMusicTree/app/git/ref/heads/develop')
-        gh.assert_any_call('repos/BehindTheMusicTree/app/rules/branches/main')
+        gh.assert_any_call('--paginate', '--slurp', 'repos/BehindTheMusicTree/app/rules/branches/main')
 
     def test_legacy_back_merge_requires_pending_main_history(self):
         self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
@@ -207,7 +207,7 @@ class PrContextTests(unittest.TestCase):
         with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, common, ('ok', '{"status":"ahead"}')]):
             with self.assertRaisesRegex(ValueError, 'no main history pending'):
                 pr_context.merge_method(self.root, *route)
-        responses = [flags, develop, common, ('ok', '{"status":"diverged"}'), ('ok', '[]'), classic]
+        responses = [flags, develop, common, ('ok', '{"status":"diverged"}'), ('ok', '[[]]'), classic]
         with patch.object(pr_context, 'gh_api', side_effect=responses) as gh:
             self.assertEqual(pr_context.merge_method(self.root, *route), 'merge')
         gh.assert_any_call('repos/BehindTheMusicTree/app/compare/main...123')
