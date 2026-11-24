@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Collect bounded, read-only Git facts for a PR; never infer validation success."""
 import argparse
+from itertools import chain
 import json
 from pathlib import Path
 import re
 import subprocess
 import sys
+from urllib.parse import quote
 
 
 def git(root, *args):
@@ -87,14 +89,119 @@ def pr_template(root, github):
     return {'source': 'none', 'path': None}
 
 
-def merge_method(root):
+def btmt_merge_method(flow, trunk, source, target, intent):
+    if source and source != target:
+        if flow != 'gitflow' and target == trunk and intent != 'back-merge':
+            return 'squash'
+        if flow == 'gitflow':
+            back_merge = source == 'main' or source.startswith(('back-merge/', 'integration/'))
+            if target == 'develop' and intent == 'back-merge' and (back_merge or source.startswith('release/')):
+                return 'merge'
+            if target == 'develop' and not back_merge and intent not in ('release', 'back-merge'):
+                if not source.startswith('release/'):
+                    return 'squash'
+            if target == 'main' and intent in ('release', 'change', 'version-bump'):
+                if source.startswith('hotfix/'):
+                    return 'squash'
+                if source.startswith('release/') and intent == 'release':
+                    return 'merge'
+    raise ValueError(f'Merge policy has no route for {source} -> {target} ({flow}, intent {intent}); '
+                     'check the PR branches and intent')
+
+
+def github_json(*args):
+    status, output = gh_api(*args)
+    if status != 'ok':
+        raise ValueError(f'Cannot read GitHub endpoint {args[-1]}: HTTP 404')
+    return json.loads(output)
+
+
+def contributing_at_pr_head(head):
+    endpoint = f'repos/{head["repo"]["full_name"]}/contents'
+    sha = head['sha']
+    docs = []
+    for item in github_json(f'{endpoint}?ref={sha}'):
+        if item['type'] != 'file' or not item['name'].startswith('CONTRIBUTING'):
+            continue
+        status, text = gh_api('-H', 'Accept: application/vnd.github.raw+json',
+                              f'{endpoint}/{quote(item["name"], safe="")}?ref={sha}')
+        if status != 'ok':
+            raise ValueError(f'Cannot read {item["name"]} at PR head {sha}')
+        docs.append(text)
+    return ' '.join(docs).lower()
+
+
+def verify_btmt_branch_rules(owner, repo, target, method):
+    endpoint = f'repos/{owner}/{repo}'
+    pages = github_json('--paginate', '--slurp', f'{endpoint}/rules/branches/{quote(target, safe="")}')
+    for rule in chain.from_iterable(pages):
+        blocked = (
+            rule['type'] == 'merge_queue'
+            or (rule['type'] == 'pull_request' and method not in rule['parameters']['allowed_merge_methods'])
+            or (rule['type'] == 'required_linear_history' and method == 'merge')
+        )
+        if blocked:
+            raise ValueError(f'GitHub ruleset {rule["ruleset_id"]} on {target} blocks native auto-merge with {method}')
+    query = (
+        'query($owner:String!, $repo:String!, $ref:String!, $branch:String!) {'
+        ' repository(owner:$owner, name:$repo) {'
+        ' ref(qualifiedName:$ref) { branchProtectionRule { requiresLinearHistory } }'
+        ' mergeQueue(branch:$branch) { configuration { mergeMethod } } } }'
+    )
+    response = github_json(
+        '-f', f'query={query}', '-f', f'owner={owner}', '-f', f'repo={repo}', '-f', f'ref=refs/heads/{target}',
+        '-f', f'branch={target}', 'graphql',
+    )
+    repository = response['data']['repository']
+    ref = repository['ref']
+    if ref is None:
+        raise ValueError(f'Cannot read branch protection for {owner}/{repo}:{target}')
+    if repository.get('mergeQueue'):
+        raise ValueError(f'GitHub merge queue on {target} blocks this native auto-merge workflow')
+    protection = ref['branchProtectionRule']
+    if method == 'merge' and protection and protection['requiresLinearHistory']:
+        raise ValueError(f'Classic branch protection requires linear history on {target} and blocks {method}')
+
+
+def verify_back_merge_source(root, endpoint, pr_head):
+    if pr_head is None:
+        released = git(root, 'merge-base', 'refs/remotes/origin/main', 'HEAD').strip()
+        integrated = git(root, 'merge-base', 'refs/remotes/origin/develop', released).strip() == released
+    else:
+        head = pr_head['sha']
+        released = github_json(f'{endpoint}/compare/main...{head}')['merge_base_commit']['sha']
+        status = github_json(f'{endpoint}/compare/{released}...develop')['status']
+        integrated = status in ('ahead', 'identical')
+    if integrated:
+        raise ValueError('Back-merge has no main history pending in develop. Check the released source and target.')
+
+
+def merge_method(root, source=None, target=None, intent='change', pr_head=None):
     owner, repo = owner_repo(root)
-    _, text = gh_api(f'repos/{owner}/{repo}', '--jq',
-                     '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}')
-    allowed = [name for name, enabled in json.loads(text).items() if enabled]
+    endpoint = f'repos/{owner}/{repo}'
+    settings = github_json(endpoint)
+    allowed = [
+        name for name, field in (
+            ('squash', 'allow_squash_merge'), ('merge', 'allow_merge_commit'), ('rebase', 'allow_rebase_merge')
+        ) if settings.get(field) is True
+    ]
+    if owner.casefold() == 'behindthemusictree':
+        # Local fetch refspecs can omit develop even after fetching.
+        status, develop = gh_api(f'{endpoint}/git/ref/heads/develop')
+        flow = 'gitflow' if status == 'ok' and json.loads(develop)['ref'] == 'refs/heads/develop' else 'github'
+        method = btmt_merge_method(flow, settings['default_branch'], source, target, intent)
+        if method not in allowed:
+            raise ValueError(f'{owner}/{repo} disables {method}, required for {source} -> {target} ({intent})')
+        if intent == 'back-merge':
+            verify_back_merge_source(root, endpoint, pr_head)
+        verify_btmt_branch_rules(owner, repo, target, method)
+        return method
     if len(allowed) == 1:
         return allowed[0]
-    docs = ' '.join(p.read_text(errors='replace').lower() for p in root.glob('CONTRIBUTING*') if p.is_file())
+    if pr_head is None:
+        docs = ' '.join(p.read_text(errors='replace').lower() for p in root.glob('CONTRIBUTING*') if p.is_file())
+    else:
+        docs = contributing_at_pr_head(pr_head)
     stated = [name for name in allowed if re.search(MERGE_WORDS[name], docs)]
     if len(stated) == 1:
         return stated[0]
@@ -156,15 +263,29 @@ def branch_prefix(flow, branch, intent):
     return 'valid' if branch and branch.startswith(GITFLOW_PREFIXES) else 'invalid'
 
 
-def collect(root, base, limit, validation_logs, intent='change', depth='auto', github=False):
-    root = Path(git(root, 'rev-parse', '--show-toplevel').strip())
+def branch_model(root):
     result = subprocess.run(
         ['bash', str(Path(__file__).with_name('detect-branch-model.sh'))], cwd=root,
         capture_output=True, text=True, check=False, timeout=60,
     )
     if result.returncode:
         raise ValueError(result.stderr.strip() or 'Branch model detection failed')
-    detected = dict(line.split('=', 1) for line in result.stdout.splitlines())
+    return dict(line.split('=', 1) for line in result.stdout.splitlines())
+
+
+def existing_pr_policy(root, number, intent):
+    owner, repo = owner_repo(root)
+    pr = github_json(f'repos/{owner}/{repo}/pulls/{number}')
+    source, target = pr['head']['ref'], pr['base']['ref']
+    return {
+        'source': source, 'target': target, 'head_sha': pr['head']['sha'], 'state': pr['state'],
+        'merge_method': merge_method(root, source, target, intent, pr_head=pr['head']),
+    }
+
+
+def collect(root, base, limit, validation_logs, intent='change', depth='auto', github=False):
+    root = Path(git(root, 'rev-parse', '--show-toplevel').strip())
+    detected = branch_model(root)
     flow = detected['flow']
     if base is None:
         base = 'origin/' + detected['trunk']
@@ -191,11 +312,18 @@ def collect(root, base, limit, validation_logs, intent='change', depth='auto', g
     ) != worktree:
         raise ValueError('Repository changed during collection; retry on a stable worktree')
     branch = git(root, 'branch', '--show-current').strip() or None
+    target = base.removeprefix('refs/remotes/').removeprefix('origin/').removeprefix('refs/heads/')
+    already_integrated = False
+    if flow == 'gitflow' and target == 'develop' and intent == 'back-merge':
+        remote_base = git(root, 'merge-base', 'refs/remotes/origin/develop', head).strip()
+        already_integrated = remote_base == head
     return {
         'repository': str(root), 'branch': branch,
         'branch_prefix': branch_prefix(flow, branch, intent),
         'pr_template': pr_template(root, github),
-        'merge_method': merge_method(root) if github else None,
+        'already_integrated': already_integrated,
+        'merge_method': merge_method(root, branch, target, intent)
+        if github and not already_integrated else None,
         'release_please': release_mode,
         'flow': flow, 'base_ref': base, 'base_sha': base_sha, 'merge_base': merge_base, 'head_sha': head,
         'review_request': {'intent': intent, 'depth': depth, 'classification': 'requires_hunk_review'},
@@ -219,12 +347,18 @@ def main():
                         help='Requested review depth; apply the shared policy after inspecting hunks.')
     parser.add_argument('--github', action='store_true',
                         help='Also query GitHub (read-only): organization PR template and allowed merge method.')
+    parser.add_argument('--pr', type=int, help='Read merge policy for an existing PR number in origin without using HEAD.')
     args = parser.parse_args()
     if not 1 <= args.limit <= 100:
         parser.error('--limit must be between 1 and 100')
     try:
-        sys.stdout.write(json.dumps(collect(args.repo, args.base, args.limit, args.validation_log,
-                                          args.intent, args.depth, args.github), indent=2) + '\n')
+        if args.pr is not None:
+            if args.pr < 1 or args.base is not None:
+                parser.error('--pr requires a positive PR number and uses the PR base from GitHub')
+            report = existing_pr_policy(args.repo, args.pr, args.intent)
+        else:
+            report = collect(args.repo, args.base, args.limit, args.validation_log, args.intent, args.depth, args.github)
+        sys.stdout.write(json.dumps(report, indent=2) + '\n')
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         sys.stderr.write(f'pr-context: {exc}\n')
         return 1

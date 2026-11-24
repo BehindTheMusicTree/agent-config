@@ -13,11 +13,13 @@ Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. It owns the intent/depth c
 
 ## Step 1 — Base branch and commits
 
+Fetch origin before collecting context, including `origin/develop` explicitly for a back-merge. Use that remote-tracking branch as the back-merge base.
+
 ```bash
 python3 "$SKILL_REPO_ROOT/scripts/pr-context.py" --github [--base <ref>] [--intent <intent>] [--depth <depth>]
 ```
 
-Use the JSON’s `flow`, `branch_prefix`, `pr_template`, `merge_method`, `release_please`, `base_ref`, pinned SHAs, commit subjects, changed files, and separate worktree state. The script reuses the branch detector and reads `origin/<trunk>` without fetching; pass `--base <ref>` for an explicit base. Resolve the PR target branch from that base. Commits remain the source of truth. Counts marked `omitted` require targeted Git reads before conclusions about the complete change. `--validation-log <path>` references existing evidence without certifying test success.
+If the context reports `already_integrated` for a back-merge, stop without opening a PR. Use the JSON’s `flow`, `branch_prefix`, `pr_template`, `merge_method`, `release_please`, `base_ref`, pinned SHAs, commit subjects, changed files, and separate worktree state. The script reuses the branch detector and reads `origin/<trunk>` without fetching; pass `--base <ref>` for an explicit base. Resolve the PR target branch from that base. Commits remain the source of truth. Counts marked `omitted` require targeted Git reads before conclusions about the complete change. `--validation-log <path>` references existing evidence without certifying test success.
 
 ## Step 2 — Branch prefix (Gitflow only)
 
@@ -104,7 +106,7 @@ Read the PR back and verify its head SHA matches the reviewed/pushed commit befo
 
 ## Step 11 — Auto-merge
 
-Apply the policy's **Auto-merge** section, with the JSON’s `merge_method`: unless the user opted out, enable auto-merge on the ready, non-draft PR for any intent, then read back `autoMergeRequest`. Never with `--admin`.
+Apply the policy's **Auto-merge** section to the actual PR, including an existing PR you updated. Refresh the method with `pr-context.py --pr <number> --intent <intent>`, reconcile any different armed method and verify the GitHub readback. Respect drafts and `--no-auto-merge`.
 
 ## Output format
 

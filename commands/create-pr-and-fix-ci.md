@@ -4,11 +4,11 @@ description: Open a PR for the current branch (with review depth matched to risk
 
 Open a PR for the current branch, then keep fixing failing CI checks and mergeability conflicts until every check passes and the PR can merge.
 
-Arguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--base` from the shared PR policy. `create-pr` enables auto-merge per the policy's **Auto-merge** section; pass `--no-auto-merge` through to skip it. Pushes made while fixing CI keep it enabled.
+Arguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--base` from the shared PR policy. `create-pr` enables auto-merge per the policy's **Auto-merge** section; pass `--no-auto-merge` through to skip it. After each CI fix push, recheck the method and confirmed head using the policy’s Auto-merge section.
 
 ## Steps 1–2 — Select context and create or inspect the PR
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, and enable auto-merge right away if it is off and the user did not opt out, then continue to Step 3. Do not create another PR.
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, and apply the policy’s Auto-merge section to reconcile and verify the method even if a request is already armed. Use `pr-context.py --pr <number> --intent <intent>` against the PR’s repository. Respect drafts and `--no-auto-merge`, then continue to Step 3. Do not create another PR. Before making CI or conflict fixes, use a task worktree checked out at this PR’s source branch and confirmed head SHA.
 
 Otherwise invoke `agent-config:create-pr` once, forwarding intent/depth/base and existing evidence (ready for review, without `--draft`). It owns coverage, intent-specific checks and final review. Capture the returned PR number, selected profile, reviewed state and validation evidence. Do not spawn a second preliminary reviewer in this wrapper.
 

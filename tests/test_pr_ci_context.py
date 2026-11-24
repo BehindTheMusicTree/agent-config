@@ -121,7 +121,8 @@ class PrContextTests(unittest.TestCase):
 
     def test_merge_method_single_documented_or_ambiguous(self):
         self.git('remote', 'add', 'origin', 'https://github.com/acme/app.git')
-        flags = lambda **kw: ('ok', json.dumps({'squash': False, 'merge': False, 'rebase': False, **kw}))
+        flags = lambda **kw: ('ok', json.dumps({f'allow_{method}_merge' if method != 'merge' else 'allow_merge_commit': enabled
+                                                        for method, enabled in kw.items()}))
         with patch.object(pr_context, 'gh_api', return_value=flags(squash=True)):
             self.assertEqual(pr_context.merge_method(self.root), 'squash')
         with patch.object(pr_context, 'gh_api', return_value=flags(squash=True, merge=True)):
@@ -129,6 +130,133 @@ class PrContextTests(unittest.TestCase):
                 pr_context.merge_method(self.root)
             (self.root / 'CONTRIBUTING.md').write_text('We use a merge commit for every PR.\n')
             self.assertEqual(pr_context.merge_method(self.root), 'merge')
+
+    def test_btmt_merge_routes(self):
+        routes = [
+            ('github', 'main', 'release-please--branches--main', 'main', 'release', 'squash'),
+            ('gitflow', 'develop', 'feature/change', 'develop', 'change', 'squash'),
+            ('gitflow', 'develop', 'fix/cherry-pick', 'develop', 'change', 'squash'),
+            ('gitflow', 'develop', 'hotfix/2.0.1', 'main', 'release', 'squash'),
+            ('gitflow', 'develop', 'release/2.1.0', 'main', 'release', 'merge'),
+            ('gitflow', 'develop', 'back-merge/2.1.0', 'develop', 'back-merge', 'merge'),
+        ]
+        flags = ('ok', '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true}')
+        classic = ('ok', '{"data":{"repository":{"ref":{"branchProtectionRule":null}}}}')
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        for flow, _, source, target, intent, expected in routes:
+            develop = ('ok', '{"ref":"refs/heads/develop"}') if flow == 'gitflow' else ('missing', '')
+            responses = [flags, develop]
+            if intent == 'back-merge':
+                responses += [('ok', '{"merge_base_commit":{"sha":"456"}}'), ('ok', '{"status":"diverged"}')]
+            responses += [('ok', '[[]]'), classic]
+            with self.subTest(source=source), patch.object(pr_context, 'gh_api', side_effect=responses):
+                self.assertEqual(pr_context.merge_method(self.root, source, target, intent, {'sha': '123'}), expected)
+
+    def test_btmt_merge_route_refuses_disabled_method_and_inconsistent_release(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        route = ('release/2.1.0', 'main', 'release')
+        disabled = ('ok', '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":false}')
+        develop = ('ok', '{"ref":"refs/heads/develop"}')
+        with patch.object(pr_context, 'gh_api', side_effect=[disabled, develop]):
+            with self.assertRaisesRegex(ValueError, 'disables merge'):
+                pr_context.merge_method(self.root, *route)
+        for source, target, intent in (
+            ('feature/x', 'main', 'release'),
+            ('feature/x', 'develop', 'back-merge'),
+            ('back-merge/2.1.0', 'develop', 'change'),
+        ):
+            with patch.object(pr_context, 'gh_api', side_effect=[disabled, develop]):
+                with self.assertRaisesRegex(ValueError, 'no route'):
+                    pr_context.merge_method(self.root, source, target, intent)
+
+        flags = ('ok', '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true}')
+        rule = ('ok', '[[],[{"type":"required_linear_history","ruleset_id":71}]]')
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, rule]):
+            with self.assertRaisesRegex(ValueError, 'ruleset 71 on main blocks .* merge'):
+                pr_context.merge_method(self.root, *route)
+        classic = ('ok', '{"data":{"repository":{"ref":{"branchProtectionRule":{"requiresLinearHistory":true}}}}}')
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, ('ok', '[[]]'), classic]):
+            with self.assertRaisesRegex(ValueError, 'Classic branch protection'):
+                pr_context.merge_method(self.root, *route)
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, ValueError('GitHub read failed')]):
+            with self.assertRaisesRegex(ValueError, 'read failed'):
+                pr_context.merge_method(self.root, *route)
+
+    def test_classic_merge_queue_blocks_native_auto_merge(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        flags = ('ok', '{"default_branch":"main","allow_squash_merge":true}')
+        classic = ('ok', json.dumps({'data': {'repository': {
+            'ref': {'branchProtectionRule': None}, 'mergeQueue': {'configuration': {'mergeMethod': 'SQUASH'}},
+        }}}))
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, ('missing', ''), ('ok', '[[]]'), classic]):
+            with self.assertRaisesRegex(ValueError, 'merge queue on main'):
+                pr_context.merge_method(self.root, 'feature/x', 'main')
+
+    def test_existing_pr_uses_github_refs_and_detects_develop_without_a_local_ref(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        pr = {'head': {'ref': 'release/2.1.0', 'sha': '123'}, 'base': {'ref': 'main'}, 'state': 'open'}
+        flags = ('ok', '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true}')
+        classic = ('ok', '{"data":{"repository":{"ref":{"branchProtectionRule":null}}}}')
+        responses = [('ok', json.dumps(pr)), flags, ('ok', '{"ref":"refs/heads/develop"}'), ('ok', '[[]]'), classic]
+        with patch.object(pr_context, 'gh_api', side_effect=responses) as gh:
+            result = pr_context.existing_pr_policy(self.root, 42, 'release')
+        self.assertEqual(result, {
+            'source': 'release/2.1.0', 'target': 'main', 'head_sha': '123', 'state': 'open', 'merge_method': 'merge',
+        })
+        gh.assert_any_call('repos/BehindTheMusicTree/app/pulls/42')
+        gh.assert_any_call('repos/BehindTheMusicTree/app/git/ref/heads/develop')
+        gh.assert_any_call('--paginate', '--slurp', 'repos/BehindTheMusicTree/app/rules/branches/main')
+
+    def test_legacy_back_merge_requires_pending_main_history(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        flags = ('ok', '{"default_branch":"main","allow_squash_merge":true,"allow_merge_commit":true}')
+        develop = ('ok', '{"ref":"refs/heads/develop"}')
+        common = ('ok', '{"merge_base_commit":{"sha":"456"}}')
+        classic = ('ok', '{"data":{"repository":{"ref":{"branchProtectionRule":null}}}}')
+        route = ('integration/main-into-develop-1.4.8', 'develop', 'back-merge', {'sha': '123'})
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, develop, common, ('ok', '{"status":"ahead"}')]):
+            with self.assertRaisesRegex(ValueError, 'no main history pending'):
+                pr_context.merge_method(self.root, *route)
+        responses = [flags, develop, common, ('ok', '{"status":"diverged"}'), ('ok', '[[]]'), classic]
+        with patch.object(pr_context, 'gh_api', side_effect=responses) as gh:
+            self.assertEqual(pr_context.merge_method(self.root, *route), 'merge')
+        gh.assert_any_call('repos/BehindTheMusicTree/app/compare/main...123')
+        gh.assert_any_call('repos/BehindTheMusicTree/app/compare/456...develop')
+
+    def test_external_existing_pr_uses_the_pr_contributing_docs(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/acme/app.git')
+        (self.root / 'CONTRIBUTING.md').write_text('Use squash.\n')
+        pr = {
+            'head': {'ref': 'feature/x', 'sha': '123', 'repo': {'full_name': 'acme/app'}},
+            'base': {'ref': 'main'}, 'state': 'open',
+        }
+        responses = [
+            ('ok', json.dumps(pr)), ('ok', '{"allow_squash_merge":true,"allow_merge_commit":true}'),
+            ('ok', '[{"type":"file","name":"CONTRIBUTING.md"}]'), ('ok', 'Use a merge commit.'),
+        ]
+        with patch.object(pr_context, 'gh_api', side_effect=responses) as gh:
+            result = pr_context.existing_pr_policy(self.root, 42, 'change')
+        self.assertEqual(result['merge_method'], 'merge')
+        gh.assert_any_call('-H', 'Accept: application/vnd.github.raw+json',
+                           'repos/acme/app/contents/CONTRIBUTING.md?ref=123')
+
+    def test_already_integrated_back_merge_has_no_merge_method(self):
+        self.git('update-ref', 'refs/remotes/origin/develop', 'main')
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        (self.root / '.github').mkdir()
+        (self.root / '.github' / 'pull_request_template.md').write_text('## Summary\n')
+        with patch.object(pr_context, 'gh_api') as gh:
+            result = pr_context.collect(self.root, 'origin/develop', 30, [], 'back-merge', github=True)
+        self.assertTrue(result['already_integrated'])
+        self.assertIsNone(result['merge_method'])
+        gh.assert_not_called()
+
+    def test_local_develop_ahead_of_origin_does_not_count_as_integrated(self):
+        self.git('update-ref', 'refs/remotes/origin/develop', 'main')
+        self.git('commit', '--allow-empty', '-qm', 'released change')
+        self.git('branch', 'develop')
+        result = pr_context.collect(self.root, 'develop', 30, [], 'back-merge')
+        self.assertFalse(result['already_integrated'])
 
     def test_review_request_is_not_an_automatic_risk_classification(self):
         report = pr_context.collect(self.root, 'base', 30, [], 'release', 'light')
