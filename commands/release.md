@@ -39,7 +39,7 @@ Run documented checks for the affected code and release data. Fetch main, merge 
 
 Invoke `agent-config:create-pr --intent release --base origin/main` with the exact release range, source/target, review depth and reusable evidence. Reuse an existing matching PR. `agent-config:create-pr` owns coverage and final independent review.
 
-Use `version-bump` only for a separate mechanical preparation PR, never to classify an unreviewed release payload as light. Auto-merge follows the shared PR policy; pass `--no-auto-merge` when the session requires holding the merge. Do not publish before the delivery PR merges.
+Use `version-bump` only for a separate mechanical preparation PR, never to classify an unreviewed release payload as light. Pass `--intent release --base origin/main` for Gitflow delivery. The PR policy chooses a merge commit for release/* and squash for hotfix/*. Auto-merge follows the shared PR policy; pass `--no-auto-merge` when the session requires holding the merge. Do not publish before the delivery PR merges.
 
 ## Step 4 — Follow the merged release
 
@@ -63,7 +63,7 @@ For partial publication, follow its declared recovery path: verify each package/
 
 For Gitflow, invoke `agent-config:create-pr --intent back-merge --base origin/develop` from a dedicated integration branch based on the released source, following the PR policy.
 
-Merge the target into that integration branch, preserve both sides, run the CI/mergeability loop and merge the back-merge PR. Never merge develop into protected main to resolve it, and never create another version or release for a back-merge. If already integrated, no PR is needed.
+Merge the target into that integration branch, preserve both sides, run the CI/mergeability loop and merge the back-merge PR. Never merge develop into protected main to resolve it, and never create another version or release for a back-merge. Before creating the integration branch, compare the pinned released SHA with the fetched target using `git merge-base --is-ancestor <released-sha> <target-sha>`. Exit 0 means the release is already integrated, so skip the PR. Exit 1 means integration is needed. Stop on other exit statuses. The back-merge PR uses a merge commit.
 
 For an explicitly requested agent-config release/synchronization, use the configured local profile and published public/private pair. A private profile keeps its pinned public release until its dependency update and private publication are separately authorized and complete. Retry synchronization after publication is verified; report installed versions and pending steps separately.
 

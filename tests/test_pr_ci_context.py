@@ -130,6 +130,63 @@ class PrContextTests(unittest.TestCase):
             (self.root / 'CONTRIBUTING.md').write_text('We use a merge commit for every PR.\n')
             self.assertEqual(pr_context.merge_method(self.root), 'merge')
 
+    def test_btmt_merge_routes(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        flags = ('ok', '{"squash":true,"merge":true,"rebase":true}')
+        routes = [
+            ('github', 'main', 'release-please--branches--main', 'main', 'release', 'squash'),
+            ('gitflow', 'develop', 'feature/change', 'develop', 'change', 'squash'),
+            ('gitflow', 'develop', 'fix/cherry-pick', 'develop', 'change', 'squash'),
+            ('gitflow', 'develop', 'hotfix/2.0.1', 'main', 'release', 'squash'),
+            ('gitflow', 'develop', 'release/2.1.0', 'main', 'release', 'merge'),
+            ('gitflow', 'develop', 'integrate/2.1.0', 'develop', 'back-merge', 'merge'),
+        ]
+        for *route, expected in routes:
+            with self.subTest(route=route), patch.object(pr_context, 'gh_api', side_effect=[flags, ('ok', '[]')]):
+                self.assertEqual(pr_context.merge_method(self.root, *route), expected)
+
+    def test_btmt_merge_route_refuses_disabled_method_and_inconsistent_release(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        route = ('gitflow', 'develop', 'release/2.1.0', 'main', 'release')
+        with patch.object(pr_context, 'gh_api', return_value=('ok', '{"squash":true,"merge":false}')):
+            with self.assertRaisesRegex(ValueError, 'disables merge'):
+                pr_context.merge_method(self.root, *route)
+            with self.assertRaisesRegex(ValueError, 'no route'):
+                pr_context.merge_method(self.root, 'gitflow', 'develop', 'feature/x', 'main', 'release')
+
+        flags = ('ok', '{"squash":true,"merge":true}')
+        rule = ('ok', '[{"type":"required_linear_history","ruleset_id":71}]')
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, rule]):
+            with self.assertRaisesRegex(ValueError, 'ruleset 71 on main blocks merge'):
+                pr_context.merge_method(self.root, *route)
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, ValueError('GitHub read failed')]):
+            with self.assertRaisesRegex(ValueError, 'read failed'):
+                pr_context.merge_method(self.root, *route)
+
+    def test_existing_pr_uses_github_refs_while_checked_out_on_another_branch(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        self.git('update-ref', 'refs/remotes/origin/develop', 'main')
+        pr = {'head': {'ref': 'hotfix/2.0.1', 'sha': '123'}, 'base': {'ref': 'main'}, 'state': 'open'}
+        responses = [('ok', json.dumps(pr)), ('ok', '{"squash":true,"merge":true}'), ('ok', '[]')]
+        with patch.object(pr_context, 'gh_api', side_effect=responses) as gh:
+            result = pr_context.existing_pr_policy(self.root, 42, 'release')
+        self.assertEqual(result, {
+            'source': 'hotfix/2.0.1', 'target': 'main', 'head_sha': '123', 'state': 'open', 'merge_method': 'squash',
+        })
+        gh.assert_any_call('repos/BehindTheMusicTree/app/pulls/42')
+        gh.assert_any_call('repos/BehindTheMusicTree/app/rules/branches/main')
+
+    def test_already_integrated_back_merge_has_no_merge_method(self):
+        self.git('update-ref', 'refs/remotes/origin/develop', 'main')
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        (self.root / '.github').mkdir()
+        (self.root / '.github' / 'pull_request_template.md').write_text('## Summary\n')
+        with patch.object(pr_context, 'gh_api') as gh:
+            result = pr_context.collect(self.root, 'origin/develop', 30, [], 'back-merge', github=True)
+        self.assertTrue(result['already_integrated'])
+        self.assertIsNone(result['merge_method'])
+        gh.assert_not_called()
+
     def test_review_request_is_not_an_automatic_risk_classification(self):
         report = pr_context.collect(self.root, 'base', 30, [], 'release', 'light')
         self.assertEqual(report['review_request'], {
