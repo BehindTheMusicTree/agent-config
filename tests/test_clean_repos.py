@@ -1312,6 +1312,39 @@ class CleanReposTests(unittest.TestCase):
         git(path / 's', 'checkout', '-q', '--detach', 'origin/main')
         self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
 
+    def test_untracked_superproject_file_hidden_by_config_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        git(path, 'config', 'status.showUntrackedFiles', 'no')
+        (path / 'untracked.txt').write_text('worktree work\n')
+        self.assert_submodule_worktree_kept(path, 'changed-before-force')
+
+    def test_untracked_submodule_file_hidden_by_config_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        git(path, 'config', 'status.showUntrackedFiles', 'no')
+        git(path / 's', 'config', 'status.showUntrackedFiles', 'no')
+        (path / 's' / 'untracked.txt').write_text('submodule work\n')
+        self.assert_submodule_worktree_kept(path, 'submodule-dirty:s')
+
+    def add_detached_submodule_commit(self, path):
+        submodule = path / 's'
+        (submodule / 'f.txt').write_text('local work\n')
+        git(submodule, 'commit', '-q', '-am', 'unpublished detached commit')
+        return submodule
+
+    def test_submodule_commit_reachable_from_local_tag_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = self.add_detached_submodule_commit(path)
+        git(submodule, 'tag', 'local-work')
+        git(submodule, 'checkout', '-q', '--detach', 'origin/main')
+        git(submodule, 'reflog', 'expire', '--expire=all', '--all')
+        self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
+
+    def test_submodule_commit_reachable_from_reflog_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = self.add_detached_submodule_commit(path)
+        git(submodule, 'checkout', '-q', '--detach', 'origin/main')
+        self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
+
     def test_merged_worktree_with_submodule_stash_is_kept(self):
         path = self.add_submodule_worktree('feature/sub')
         (path / 's' / 'f.txt').write_text('changed\n')

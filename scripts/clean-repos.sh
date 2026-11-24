@@ -553,18 +553,16 @@ worktree_has_submodules() {
 # git dir, which `worktree remove --force` destroys, so unpushed work must be
 # ruled out first. Any failure of the check counts as unsafe.
 worktree_submodules_safe() {
-  local path="$1" out
-  worktree_has_submodules "$path" || return 0
-  local gitdir
+  local path="$1" out gitdir
   gitdir="$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "submodule-check-failed"; return 1; }
   # Any failing git call aborts foreach (rc != 0), so an unreadable submodule is never "clean".
   if ! out="$(git -C "$path" submodule foreach --quiet --recursive '
       echo "@gitdir $(git rev-parse --absolute-git-dir)" || exit 1
-      s=$(git status --porcelain --ignore-submodules=none) || exit 1
+      s=$(git status --porcelain --untracked-files=all --ignore-submodules=none) || exit 1
       [ -z "$s" ] || echo "submodule-dirty:$displaypath"
       s=$(git stash list) || exit 1
       [ -z "$s" ] || echo "submodule-stash:$displaypath"
-      s=$(git rev-list -n1 HEAD --branches --not --remotes) || exit 1
+      s=$(git rev-list -n1 HEAD --all --reflog --not --remotes) || exit 1
       [ -z "$s" ] || echo "submodule-unpushed:$displaypath"
     ' 2>/dev/null)"; then
     echo "submodule-check-failed"
@@ -597,13 +595,17 @@ worktree_submodules_safe() {
 # Remove a worktree. rc 0 on success (remove_forced=true when git needed
 # --force because of clean submodules); rc 1 with remove_reason set otherwise.
 remove_worktree() {
-  local path="$1" err
+  local path="$1" err status
   remove_reason="" remove_forced=false
   if err="$(git worktree remove "$path" 2>&1)"; then return 0; fi
   if [[ "$err" == *"containing submodules"* ]]; then
     if ! remove_reason="$(worktree_submodules_safe "$path")"; then return 1; fi
     # --force also skips git's own cleanliness check of the superproject: redo it.
-    if [[ -n "$(git -C "$path" status --porcelain --ignore-submodules=none 2>/dev/null)" ]]; then
+    if ! status="$(git -C "$path" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)"; then
+      remove_reason=worktree-status-check-failed
+      return 1
+    fi
+    if [[ -n "$status" ]]; then
       remove_reason=changed-before-force
       return 1
     fi
