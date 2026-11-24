@@ -555,22 +555,11 @@ worktree_has_submodules() {
 worktree_submodules_safe() {
   local path="$1" out
   worktree_has_submodules "$path" || return 0
-  # `foreach` skips deinitialized submodules, but their git dir (and any local
-  # commits in it) survives under modules/ and dies with --force: refuse.
-  local gitdir line sm name
+  local gitdir
   gitdir="$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "submodule-check-failed"; return 1; }
-  while IFS= read -r line; do
-    [[ "${line:0:1}" == "-" ]] || continue
-    sm="$(awk '{print $2}' <<<"$line")"
-    name="$(git -C "$path" config -f .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null \
-      | awk -v p="$sm" '$2==p{n=$1; sub(/^submodule\./,"",n); sub(/\.path$/,"",n); print n; exit}')"
-    if [[ -d "$gitdir/modules/${name:-$sm}" ]]; then
-      echo "submodule-uninitialized:$sm"
-      return 1
-    fi
-  done < <(git -C "$path" submodule status --recursive 2>/dev/null)
-  # Any failing git call aborts foreach (rc != 0) so an unreadable submodule is never "clean".
+  # Any failing git call aborts foreach (rc != 0), so an unreadable submodule is never "clean".
   if ! out="$(git -C "$path" submodule foreach --quiet --recursive '
+      echo "@gitdir $(git rev-parse --absolute-git-dir)" || exit 1
       s=$(git status --porcelain --ignore-submodules=none) || exit 1
       [ -z "$s" ] || echo "submodule-dirty:$displaypath"
       s=$(git stash list) || exit 1
@@ -580,6 +569,21 @@ worktree_submodules_safe() {
     ' 2>/dev/null)"; then
     echo "submodule-check-failed"
     return 1
+  fi
+  # `foreach` skips deinitialized submodules, but their git dir (and any local
+  # commits in it, nested ones included) survives under modules/ and dies with
+  # --force: refuse when a git dir there was not visited above.
+  local visited="" d
+  visited="$(grep '^@gitdir ' <<<"$out" | sed 's/^@gitdir //')" || true
+  out="$(grep -v '^@gitdir ' <<<"$out")" || true
+  if [[ -d "$gitdir/modules" ]]; then
+    while IFS= read -r -d '' d; do
+      d="${d%/HEAD}"
+      [[ -d "$d/objects" ]] || continue
+      grep -Fxq -- "$d" <<<"$visited" && continue
+      echo "submodule-uninitialized:${d#"$gitdir/modules/"}"
+      return 1
+    done < <(find "$gitdir/modules" -type f -name HEAD -print0 2>/dev/null)
   fi
   if [[ -n "$out" ]]; then
     head -1 <<<"$out"

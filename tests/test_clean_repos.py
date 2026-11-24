@@ -1252,7 +1252,7 @@ class CleanReposTests(unittest.TestCase):
         self.assertTrue(recap.exists())
 
 
-    def add_submodule_worktree(self, branch):
+    def add_submodule_worktree(self, branch, sub_path='s', nested=False):
         sub_origin = Path(self.tmp.name).resolve() / 'sub.git'
         seed = Path(self.tmp.name).resolve() / 'sub-seed'
         git(sub_origin.parent, 'init', '-q', '--bare', '-b', 'main', str(sub_origin))
@@ -1261,11 +1261,23 @@ class CleanReposTests(unittest.TestCase):
         git(seed, 'add', '.')
         git(seed, 'commit', '-q', '-m', 'sub initial')
         git(seed, 'push', '-q', 'origin', 'HEAD:main')
-        git(self.repo, 'submodule', 'add', '-q', str(sub_origin), 's')
+        if nested:
+            leaf_origin = Path(self.tmp.name).resolve() / 'leaf.git'
+            git(leaf_origin.parent, 'init', '-q', '--bare', '-b', 'main', str(leaf_origin))
+            leaf_seed = Path(self.tmp.name).resolve() / 'leaf-seed'
+            git(leaf_origin.parent, 'clone', '-q', str(leaf_origin), str(leaf_seed))
+            (leaf_seed / 'l.txt').write_text('leaf\n')
+            git(leaf_seed, 'add', '.')
+            git(leaf_seed, 'commit', '-q', '-m', 'leaf initial')
+            git(leaf_seed, 'push', '-q', 'origin', 'HEAD:main')
+            git(seed, 'submodule', 'add', '-q', str(leaf_origin), 'leaf')
+            git(seed, 'commit', '-q', '-m', 'add leaf')
+            git(seed, 'push', '-q', 'origin', 'HEAD:main')
+        git(self.repo, 'submodule', 'add', '-q', str(sub_origin), sub_path)
         git(self.repo, 'commit', '-q', '-m', 'add submodule')
         git(self.repo, 'push', '-q', 'origin', 'main')
         path = self.add_worktree(branch, merged=True)
-        git(path, 'submodule', 'update', '--init', '-q')
+        git(path, 'submodule', 'update', '--init', '--recursive', '-q')
         return path
 
     def test_merged_worktree_with_clean_submodule_is_removed_with_its_branch(self):
@@ -1313,6 +1325,23 @@ class CleanReposTests(unittest.TestCase):
         git(path / 's', 'commit', '-q', '-am', 'local only')
         git(path, 'submodule', 'deinit', '-q', '-f', 's')
         self.assert_submodule_worktree_kept(path, 'submodule-uninitialized:s')
+
+    def test_deinitialized_submodule_with_space_in_path_is_kept(self):
+        path = self.add_submodule_worktree('feature/sub', sub_path='sp ace')
+        git(path / 'sp ace', 'checkout', '-q', '-b', 'local-only')
+        (path / 'sp ace' / 'f.txt').write_text('changed\n')
+        git(path / 'sp ace', 'commit', '-q', '-am', 'local only')
+        git(path, 'submodule', 'deinit', '-q', '-f', 'sp ace')
+        self.assert_submodule_worktree_kept(path, 'submodule-uninitialized:sp ace')
+
+    def test_deinitialized_nested_submodule_with_local_commit_is_kept(self):
+        path = self.add_submodule_worktree('feature/sub', nested=True)
+        leaf = path / 's' / 'leaf'
+        git(leaf, 'checkout', '-q', '-b', 'local-only')
+        (leaf / 'l.txt').write_text('changed\n')
+        git(leaf, 'commit', '-q', '-am', 'local only')
+        git(path / 's', 'submodule', 'deinit', '-q', '-f', 'leaf')
+        self.assert_submodule_worktree_kept(path, 'submodule-uninitialized:s/modules/leaf')
 
     def test_scan_reports_submodule_state(self):
         self.add_submodule_worktree('feature/sub')
