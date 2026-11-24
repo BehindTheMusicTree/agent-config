@@ -577,13 +577,15 @@ worktree_submodules_safe() {
   visited="$(grep '^@gitdir ' <<<"$out" | sed 's/^@gitdir //')" || true
   out="$(grep -v '^@gitdir ' <<<"$out")" || true
   if [[ -d "$gitdir/modules" ]]; then
+    # Fail closed: an unreadable part of modules/ must not read as "nothing there".
+    find "$gitdir/modules/" -type f -name HEAD >/dev/null 2>&1 || { echo "submodule-check-failed"; return 1; }
     while IFS= read -r -d '' d; do
       d="${d%/HEAD}"
       [[ -d "$d/objects" ]] || continue
       grep -Fxq -- "$d" <<<"$visited" && continue
       echo "submodule-uninitialized:${d#"$gitdir/modules/"}"
       return 1
-    done < <(find "$gitdir/modules" -type f -name HEAD -print0 2>/dev/null)
+    done < <(find "$gitdir/modules/" -type f -name HEAD -print0 2>/dev/null)
   fi
   if [[ -n "$out" ]]; then
     head -1 <<<"$out"
