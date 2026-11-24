@@ -1345,6 +1345,26 @@ class CleanReposTests(unittest.TestCase):
         git(submodule, 'checkout', '-q', '--detach', 'origin/main')
         self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
 
+    def test_worktree_index_hiding_modified_file_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        git(path, 'update-index', '--skip-worktree', 'work.txt')
+        (path / 'work.txt').write_text('hidden modification\n')
+        self.assert_submodule_worktree_kept(path, 'worktree-index-hides-paths')
+
+    def test_submodule_index_hiding_modified_file_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = path / 's'
+        git(submodule, 'update-index', '--assume-unchanged', 'f.txt')
+        (submodule / 'f.txt').write_text('hidden modification\n')
+        self.assert_submodule_worktree_kept(path, 'submodule-index-hides-paths:s')
+
+    def test_recoverable_submodule_commit_without_reflog_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = self.add_detached_submodule_commit(path)
+        git(submodule, 'checkout', '-q', '--detach', 'origin/main')
+        git(submodule, 'reflog', 'expire', '--expire=all', '--all')
+        self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
+
     def test_merged_worktree_with_submodule_stash_is_kept(self):
         path = self.add_submodule_worktree('feature/sub')
         (path / 's' / 'f.txt').write_text('changed\n')

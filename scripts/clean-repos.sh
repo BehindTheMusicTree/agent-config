@@ -559,11 +559,20 @@ worktree_submodules_safe() {
   if ! out="$(git -C "$path" submodule foreach --quiet --recursive '
       echo "@gitdir $(git rev-parse --absolute-git-dir)" || exit 1
       s=$(git status --porcelain --untracked-files=all --ignore-submodules=none) || exit 1
-      [ -z "$s" ] || echo "submodule-dirty:$displaypath"
+      [ -z "$s" ] || { echo "submodule-dirty:$displaypath"; exit 0; }
+      s=$(git ls-files -v) || exit 1
+      if printf "%s\n" "$s" | grep -Eq "^[a-zS] "; then
+        echo "submodule-index-hides-paths:$displaypath"
+        exit 0
+      fi
       s=$(git stash list) || exit 1
-      [ -z "$s" ] || echo "submodule-stash:$displaypath"
+      [ -z "$s" ] || { echo "submodule-stash:$displaypath"; exit 0; }
       s=$(git rev-list -n1 HEAD --all --reflog --not --remotes) || exit 1
-      [ -z "$s" ] || echo "submodule-unpushed:$displaypath"
+      [ -z "$s" ] || { echo "submodule-unpushed:$displaypath"; exit 0; }
+      s=$(git fsck --connectivity-only --unreachable --no-progress) || exit 1
+      if printf "%s\n" "$s" | grep -q "^unreachable commit "; then
+        echo "submodule-unpushed:$displaypath"
+      fi
     ' 2>/dev/null)"; then
     echo "submodule-check-failed"
     return 1
@@ -595,7 +604,7 @@ worktree_submodules_safe() {
 # Remove a worktree. rc 0 on success (remove_forced=true when git needed
 # --force because of clean submodules); rc 1 with remove_reason set otherwise.
 remove_worktree() {
-  local path="$1" err status
+  local path="$1" err status index_flags
   remove_reason="" remove_forced=false
   if err="$(git worktree remove "$path" 2>&1)"; then return 0; fi
   if [[ "$err" == *"containing submodules"* ]]; then
@@ -607,6 +616,15 @@ remove_worktree() {
     fi
     if [[ -n "$status" ]]; then
       remove_reason=changed-before-force
+      return 1
+    fi
+    # Status trusts assume-unchanged and skip-worktree even when files differ.
+    if ! index_flags="$(git -C "$path" ls-files -v 2>/dev/null)"; then
+      remove_reason=worktree-index-check-failed
+      return 1
+    fi
+    if grep -Eq "^[a-zS] " <<<"$index_flags"; then
+      remove_reason=worktree-index-hides-paths
       return 1
     fi
     if err="$(git worktree remove --force "$path" 2>&1)"; then remove_forced=true; return 0; fi
