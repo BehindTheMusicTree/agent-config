@@ -93,10 +93,12 @@ def btmt_merge_method(flow, trunk, source, target, intent):
         if flow != 'gitflow' and target == trunk and intent != 'back-merge':
             return 'squash'
         if flow == 'gitflow':
-            if target == 'develop' and intent == 'back-merge':
+            back_merge = source == 'main' or source.startswith('back-merge/')
+            if target == 'develop' and back_merge and intent == 'back-merge':
                 return 'merge'
-            if target == 'develop' and intent != 'release' and source != 'main' and not source.startswith('release/'):
-                return 'squash'
+            if target == 'develop' and not back_merge and intent not in ('release', 'back-merge'):
+                if not source.startswith('release/'):
+                    return 'squash'
             if target == 'main' and intent in ('release', 'change', 'version-bump'):
                 if source.startswith('hotfix/'):
                     return 'squash'
@@ -106,36 +108,79 @@ def btmt_merge_method(flow, trunk, source, target, intent):
                      'check the PR branches and intent')
 
 
-def github_json(endpoint):
-    status, output = gh_api(endpoint)
+def github_json(*args):
+    status, output = gh_api(*args)
     if status != 'ok':
-        raise ValueError(f'Cannot read GitHub endpoint {endpoint}: HTTP 404')
+        raise ValueError(f'Cannot read GitHub endpoint {args[-1]}: HTTP 404')
     return json.loads(output)
 
 
-def merge_method(root, flow=None, trunk=None, source=None, target=None, intent='change'):
+def contributing_at_pr_head(head):
+    endpoint = f'repos/{head["repo"]["full_name"]}/contents'
+    sha = head['sha']
+    docs = []
+    for item in github_json(f'{endpoint}?ref={sha}'):
+        if item['type'] != 'file' or not item['name'].startswith('CONTRIBUTING'):
+            continue
+        status, text = gh_api('-H', 'Accept: application/vnd.github.raw+json',
+                              f'{endpoint}/{quote(item["name"], safe="")}?ref={sha}')
+        if status != 'ok':
+            raise ValueError(f'Cannot read {item["name"]} at PR head {sha}')
+        docs.append(text)
+    return ' '.join(docs).lower()
+
+
+def verify_btmt_branch_rules(owner, repo, target, method):
+    endpoint = f'repos/{owner}/{repo}'
+    for rule in github_json(f'{endpoint}/rules/branches/{quote(target, safe="")}'):
+        blocked = (
+            rule['type'] == 'merge_queue'
+            or (rule['type'] == 'pull_request' and method not in rule['parameters']['allowed_merge_methods'])
+            or (rule['type'] == 'required_linear_history' and method == 'merge')
+        )
+        if blocked:
+            raise ValueError(f'GitHub ruleset {rule["ruleset_id"]} on {target} blocks native auto-merge with {method}')
+    if method == 'merge':
+        query = (
+            'query($owner:String!, $repo:String!, $ref:String!) { repository(owner:$owner, name:$repo) {'
+            ' ref(qualifiedName:$ref) { branchProtectionRule { requiresLinearHistory } } } }'
+        )
+        response = github_json(
+            '-f', f'query={query}', '-f', f'owner={owner}', '-f', f'repo={repo}', '-f', f'ref=refs/heads/{target}',
+            'graphql',
+        )
+        ref = response['data']['repository']['ref']
+        if ref is None:
+            raise ValueError(f'Cannot read branch protection for {owner}/{repo}:{target}')
+        protection = ref['branchProtectionRule']
+        if protection and protection['requiresLinearHistory']:
+            raise ValueError(f'Classic branch protection requires linear history on {target} and blocks {method}')
+
+
+def merge_method(root, source=None, target=None, intent='change', pr_head=None):
     owner, repo = owner_repo(root)
     endpoint = f'repos/{owner}/{repo}'
-    status, text = gh_api(
-        '--jq', '{squash: .allow_squash_merge, merge: .allow_merge_commit, rebase: .allow_rebase_merge}', endpoint
-    )
-    if status != 'ok':
-        raise ValueError(f'Cannot read merge settings for {owner}/{repo}: HTTP 404')
-    allowed = [name for name, enabled in json.loads(text).items() if enabled]
+    settings = github_json(endpoint)
+    allowed = [
+        name for name, field in (
+            ('squash', 'allow_squash_merge'), ('merge', 'allow_merge_commit'), ('rebase', 'allow_rebase_merge')
+        ) if settings.get(field) is True
+    ]
     if owner.casefold() == 'behindthemusictree':
-        method = btmt_merge_method(flow, trunk, source, target, intent)
+        # Local fetch refspecs can omit develop even after fetching.
+        status, _ = gh_api(f'{endpoint}/branches/develop')
+        flow = 'gitflow' if status == 'ok' else 'github'
+        method = btmt_merge_method(flow, settings['default_branch'], source, target, intent)
         if method not in allowed:
             raise ValueError(f'{owner}/{repo} disables {method}, required for {source} -> {target} ({intent})')
-        for rule in github_json(f'{endpoint}/rules/branches/{quote(target, safe="")}'):
-            blocked = (
-                rule['type'] == 'pull_request' and method not in rule['parameters']['allowed_merge_methods']
-            ) or (rule['type'] == 'required_linear_history' and method == 'merge')
-            if blocked:
-                raise ValueError(f'GitHub ruleset {rule["ruleset_id"]} on {target} blocks {method}')
+        verify_btmt_branch_rules(owner, repo, target, method)
         return method
     if len(allowed) == 1:
         return allowed[0]
-    docs = ' '.join(p.read_text(errors='replace').lower() for p in root.glob('CONTRIBUTING*') if p.is_file())
+    if pr_head is None:
+        docs = ' '.join(p.read_text(errors='replace').lower() for p in root.glob('CONTRIBUTING*') if p.is_file())
+    else:
+        docs = contributing_at_pr_head(pr_head)
     stated = [name for name in allowed if re.search(MERGE_WORDS[name], docs)]
     if len(stated) == 1:
         return stated[0]
@@ -211,10 +256,9 @@ def existing_pr_policy(root, number, intent):
     owner, repo = owner_repo(root)
     pr = github_json(f'repos/{owner}/{repo}/pulls/{number}')
     source, target = pr['head']['ref'], pr['base']['ref']
-    detected = branch_model(root)
     return {
         'source': source, 'target': target, 'head_sha': pr['head']['sha'], 'state': pr['state'],
-        'merge_method': merge_method(root, detected['flow'], detected['trunk'], source, target, intent),
+        'merge_method': merge_method(root, source, target, intent, pr_head=pr['head']),
     }
 
 
@@ -248,13 +292,16 @@ def collect(root, base, limit, validation_logs, intent='change', depth='auto', g
         raise ValueError('Repository changed during collection; retry on a stable worktree')
     branch = git(root, 'branch', '--show-current').strip() or None
     target = base.removeprefix('refs/remotes/').removeprefix('origin/').removeprefix('refs/heads/')
-    already_integrated = flow == 'gitflow' and target == 'develop' and intent == 'back-merge' and merge_base == head
+    already_integrated = False
+    if flow == 'gitflow' and target == 'develop' and intent == 'back-merge':
+        remote_base = git(root, 'merge-base', 'refs/remotes/origin/develop', head).strip()
+        already_integrated = remote_base == head
     return {
         'repository': str(root), 'branch': branch,
         'branch_prefix': branch_prefix(flow, branch, intent),
         'pr_template': pr_template(root, github),
         'already_integrated': already_integrated,
-        'merge_method': merge_method(root, flow, detected['trunk'], branch, target, intent)
+        'merge_method': merge_method(root, branch, target, intent)
         if github and not already_integrated else None,
         'release_please': release_mode,
         'flow': flow, 'base_ref': base, 'base_sha': base_sha, 'merge_base': merge_base, 'head_sha': head,

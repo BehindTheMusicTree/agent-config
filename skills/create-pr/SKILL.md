@@ -13,6 +13,8 @@ Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. It owns the intent/depth c
 
 ## Step 1 — Base branch and commits
 
+Fetch origin before collecting context, including `origin/develop` explicitly for a back-merge. Use that remote-tracking branch as the back-merge base.
+
 ```bash
 python3 "$SKILL_REPO_ROOT/scripts/pr-context.py" --github [--base <ref>] [--intent <intent>] [--depth <depth>]
 ```

@@ -10,6 +10,8 @@ Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. It owns the intent/de
 
 ## Step 1 — Base branch and commits
 
+Fetch origin before collecting context, including `origin/develop` explicitly for a back-merge. Use that remote-tracking branch as the back-merge base.
+
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/pr-context.py" --github [--base <ref>] [--intent <intent>] [--depth <depth>]
 ```

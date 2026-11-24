@@ -25,7 +25,7 @@
       "codex": "Read `$SKILL_REPO_ROOT/references/pr-policy.md` once. It owns the intent/depth criteria and reviewer contract shared with CI and release. Accept `--intent`, `--depth`, `--base`, and `--draft`; apply project conventions and resolve the actual source/target. For a back-merge, prepare the dedicated integration branch as specified there before collecting context. Carry existing evidence through nested calls; a request for light review cannot override identified risk.\n"
     },
     {
-      "shared": "\n## Step 1 — Base branch and commits\n\n```bash\n"
+      "shared": "\n## Step 1 — Base branch and commits\n\nFetch origin before collecting context, including `origin/develop` explicitly for a back-merge. Use that remote-tracking branch as the back-merge base.\n\n```bash\n"
     },
     {
       "claude": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/pr-context.py\" --github [--base <ref>] [--intent <intent>] [--depth <depth>]\n",

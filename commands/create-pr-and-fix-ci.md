@@ -8,7 +8,7 @@ Arguments: optional existing PR number/URL, plus `--intent`, `--depth`, and `--b
 
 ## Steps 1–2 — Select context and create or inspect the PR
 
-Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, and apply the policy’s Auto-merge section to reconcile and verify the method even if a request is already armed. Use `pr-context.py --pr <number> --intent <intent>` against the PR’s repository. Respect drafts and `--no-auto-merge`, then continue to Step 3. Do not create another PR.
+Read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md` once. If an existing PR was supplied, read its current source/target, HEAD and review/validation evidence, apply the policy to missing evidence, and apply the policy’s Auto-merge section to reconcile and verify the method even if a request is already armed. Use `pr-context.py --pr <number> --intent <intent>` against the PR’s repository. Respect drafts and `--no-auto-merge`, then continue to Step 3. Do not create another PR. Before making CI or conflict fixes, use a task worktree checked out at this PR’s source branch and confirmed head SHA.
 
 Otherwise invoke `agent-config:create-pr` once, forwarding intent/depth/base and existing evidence (ready for review, without `--draft`). It owns coverage, intent-specific checks and final review. Capture the returned PR number, selected profile, reviewed state and validation evidence. Do not spawn a second preliminary reviewer in this wrapper.
 
