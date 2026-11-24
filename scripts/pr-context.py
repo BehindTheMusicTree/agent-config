@@ -93,8 +93,8 @@ def btmt_merge_method(flow, trunk, source, target, intent):
         if flow != 'gitflow' and target == trunk and intent != 'back-merge':
             return 'squash'
         if flow == 'gitflow':
-            back_merge = source == 'main' or source.startswith('back-merge/')
-            if target == 'develop' and back_merge and intent == 'back-merge':
+            back_merge = source == 'main' or source.startswith(('back-merge/', 'integration/'))
+            if target == 'develop' and intent == 'back-merge' and (back_merge or source.startswith('release/')):
                 return 'merge'
             if target == 'develop' and not back_merge and intent not in ('release', 'back-merge'):
                 if not source.startswith('release/'):
@@ -157,6 +157,19 @@ def verify_btmt_branch_rules(owner, repo, target, method):
             raise ValueError(f'Classic branch protection requires linear history on {target} and blocks {method}')
 
 
+def verify_back_merge_source(root, endpoint, pr_head):
+    if pr_head is None:
+        released = git(root, 'merge-base', 'refs/remotes/origin/main', 'HEAD').strip()
+        integrated = git(root, 'merge-base', 'refs/remotes/origin/develop', released).strip() == released
+    else:
+        head = pr_head['sha']
+        released = github_json(f'{endpoint}/compare/main...{head}')['merge_base_commit']['sha']
+        status = github_json(f'{endpoint}/compare/{released}...develop')['status']
+        integrated = status in ('ahead', 'identical')
+    if integrated:
+        raise ValueError('Back-merge has no main history pending in develop. Check the released source and target.')
+
+
 def merge_method(root, source=None, target=None, intent='change', pr_head=None):
     owner, repo = owner_repo(root)
     endpoint = f'repos/{owner}/{repo}'
@@ -168,11 +181,13 @@ def merge_method(root, source=None, target=None, intent='change', pr_head=None):
     ]
     if owner.casefold() == 'behindthemusictree':
         # Local fetch refspecs can omit develop even after fetching.
-        status, _ = gh_api(f'{endpoint}/branches/develop')
-        flow = 'gitflow' if status == 'ok' else 'github'
+        status, develop = gh_api(f'{endpoint}/git/ref/heads/develop')
+        flow = 'gitflow' if status == 'ok' and json.loads(develop)['ref'] == 'refs/heads/develop' else 'github'
         method = btmt_merge_method(flow, settings['default_branch'], source, target, intent)
         if method not in allowed:
             raise ValueError(f'{owner}/{repo} disables {method}, required for {source} -> {target} ({intent})')
+        if intent == 'back-merge':
+            verify_back_merge_source(root, endpoint, pr_head)
         verify_btmt_branch_rules(owner, repo, target, method)
         return method
     if len(allowed) == 1:
