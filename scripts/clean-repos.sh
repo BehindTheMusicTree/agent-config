@@ -539,6 +539,89 @@ stop_worktree_processes() {
   return 0
 }
 
+# True when the worktree has an initialized submodule, or a leftover modules/
+# dir (git refuses `worktree remove` on either, even after `submodule deinit`).
+worktree_has_submodules() {
+  local path="$1" gitdir
+  gitdir="$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+  [[ -d "$gitdir/modules" ]] && return 0
+  git -C "$path" submodule status --recursive 2>/dev/null | grep -q '^[^-]'
+}
+
+# rc 0: no submodule, or every one is proven free of local work. Otherwise rc 1
+# and the reason on stdout. The submodule git dirs live under the worktree's own
+# git dir, which `worktree remove --force` destroys, so unpushed work must be
+# ruled out first. Any failure of the check counts as unsafe.
+worktree_submodules_safe() {
+  local path="$1" out
+  worktree_has_submodules "$path" || return 0
+  if ! out="$(git -C "$path" submodule foreach --quiet --recursive '
+      [ -z "$(git status --porcelain --ignore-submodules=none)" ] || echo "submodule-dirty:$displaypath"
+      [ -z "$(git stash list)" ] || echo "submodule-stash:$displaypath"
+      [ -z "$(git rev-list -n1 HEAD --branches --not --remotes)" ] || echo "submodule-unpushed:$displaypath"
+    ' 2>/dev/null)"; then
+    echo "submodule-check-failed"
+    return 1
+  fi
+  if [[ -n "$out" ]]; then
+    head -1 <<<"$out"
+    return 1
+  fi
+  return 0
+}
+
+# Remove a worktree. rc 0 on success (remove_forced=true when git needed
+# --force because of clean submodules); rc 1 with remove_reason set otherwise.
+remove_worktree() {
+  local path="$1" err
+  remove_reason="" remove_forced=false
+  if err="$(git worktree remove "$path" 2>&1)"; then return 0; fi
+  if [[ "$err" == *"containing submodules"* ]]; then
+    if ! remove_reason="$(worktree_submodules_safe "$path")"; then return 1; fi
+    # --force also skips git's own cleanliness check of the superproject: redo it.
+    if [[ -n "$(git -C "$path" status --porcelain --ignore-submodules=none 2>/dev/null)" ]]; then
+      remove_reason=changed-before-force
+      return 1
+    fi
+    if err="$(git worktree remove --force "$path" 2>&1)"; then remove_forced=true; return 0; fi
+  fi
+  remove_reason="remove-failed: $(head -1 <<<"$err" | sed 's/^fatal: //')"
+  return 1
+}
+
+# Report a worktree that could not be removed and keep its branch.
+report_worktree_kept() {
+  local path="$1" br="$2"
+  echo "repo=$name skip-worktree=$path${br:+ branch=$br} reason=$remove_reason"
+  skipped=$((skipped + 1))
+  if [[ -n "$br" ]]; then
+    late_protected["$br"]=1
+    echo "repo=$name skip-local=$br reason=worktree-kept"
+    skipped=$((skipped + 1))
+  fi
+}
+
+# Scan annotation for a removal candidate; empty when it has no submodules.
+worktree_submodule_note() {
+  local path="$1" reason
+  worktree_has_submodules "$path" || return 0
+  if reason="$(worktree_submodules_safe "$path")"; then
+    echo " [submodules: clean, removed with --force]"
+  else
+    echo " [submodules: $reason, will be kept]"
+  fi
+}
+
+# Reason for a failed `git branch -D` (err is its stderr): where the branch is
+# checked out, else git's first line.
+branch_delete_reason() {
+  local b="$1" err="$2" wt
+  wt="$(git worktree list --porcelain | awk -v ref="branch refs/heads/$b" '/^worktree /{p=substr($0,10)} $0==ref{print p; exit}')"
+  if [[ -n "$wt" ]]; then echo "checked-out:$wt"; return; fi
+  err="$(head -1 <<<"$err" | sed 's/^\(error\|fatal\): //')"
+  echo "delete-failed: ${err:-unknown}"
+}
+
 worktree_branch_proven_on_trunk() {
   branch_fully_cherry_merged "refs/heads/$1" || branch_adds_nothing_to_trunk "refs/heads/$1"
 }
@@ -1168,6 +1251,10 @@ for repo in "$git_root"/*/; do
       pids="$(show_processes "${process_states[$path]}")"
       [[ -n "$pids" ]] && echo "  running-processes (will be killed on apply): ${wt%:*}: $pids"
     done
+    for wt in "${worktree_removals[@]}" "${stale_empty_worktrees[@]}" "${equivalent_worktrees[@]}"; do
+      note="$(worktree_submodule_note "${wt%:*}")"
+      [[ -z "$note" ]] || echo "  worktree-submodules: ${wt%:*}$note"
+    done
     for i in "${!active_worktrees[@]}"; do
       case "${active_reasons[$i]}" in
         caller-worktree) echo "  caller-worktree (caller uses it, worktree and branch kept): ${active_worktrees[$i]}" ;;
@@ -1207,18 +1294,20 @@ for repo in "$git_root"/*/; do
         skipped=$((skipped + 1))
         continue
       fi
-      if ! git worktree remove "$path" 2>/dev/null; then
-        echo "repo=$name skip-worktree=$path reason=remove-failed"
-        skipped=$((skipped + 1))
+      if ! remove_worktree "$path"; then
+        report_worktree_kept "$path" "$br"
         continue
       fi
-      echo "repo=$name removed-worktree=$path reason=stale-empty"
+      echo "repo=$name removed-worktree=$path reason=stale-empty$($remove_forced && echo ' submodules=removed-clean')"
       removed_worktrees=$((removed_worktrees + 1))
-      if git merge-base --is-ancestor "$br" "origin/$trunk" 2>/dev/null && git branch -D "$br" >/dev/null 2>&1; then
+      if ! git merge-base --is-ancestor "$br" "origin/$trunk" 2>/dev/null; then
+        echo "repo=$name skip-local=$br reason=not-fully-merged"
+        skipped=$((skipped + 1))
+      elif err="$(git branch -D "$br" 2>&1 >/dev/null)"; then
         echo "repo=$name deleted-local=$br reason=stale-empty"
         deleted_local=$((deleted_local + 1))
       else
-        echo "repo=$name skip-local=$br reason=delete-failed"
+        echo "repo=$name skip-local=$br reason=$(branch_delete_reason "$br" "$err")"
         skipped=$((skipped + 1))
       fi
     done
@@ -1231,12 +1320,11 @@ for repo in "$git_root"/*/; do
         skipped=$((skipped + 1))
         continue
       fi
-      if git worktree remove "$path" 2>/dev/null; then
-        echo "repo=$name removed-worktree=$path"
+      if remove_worktree "$path"; then
+        echo "repo=$name removed-worktree=$path$($remove_forced && echo ' submodules=removed-clean')"
         removed_worktrees=$((removed_worktrees + 1))
       else
-        echo "repo=$name skip-worktree=$path reason=remove-failed"
-        skipped=$((skipped + 1))
+        report_worktree_kept "$path" "$br"
       fi
     done
     for i in "${!equivalent_worktrees[@]}"; do
@@ -1259,19 +1347,21 @@ for repo in "$git_root"/*/; do
         skipped=$((skipped + 1))
         continue
       fi
-      if ! git worktree remove "$path" 2>/dev/null; then
-        echo "repo=$name skip-worktree=$path reason=remove-failed"
-        skipped=$((skipped + 1))
+      if ! remove_worktree "$path"; then
+        report_worktree_kept "$path" "$br"
         continue
       fi
-      echo "repo=$name removed-worktree=$path reason=content-on-trunk"
+      echo "repo=$name removed-worktree=$path reason=content-on-trunk$($remove_forced && echo ' submodules=removed-clean')"
       removed_worktrees=$((removed_worktrees + 1))
       [[ -n "$br" ]] || continue
-      if worktree_branch_proven_on_trunk "$br" && git branch -D "$br" >/dev/null 2>&1; then
+      if ! worktree_branch_proven_on_trunk "$br"; then
+        echo "repo=$name skip-local=$br reason=not-proven-on-trunk"
+        skipped=$((skipped + 1))
+      elif err="$(git branch -D "$br" 2>&1 >/dev/null)"; then
         echo "repo=$name deleted-local=$br reason=content-on-trunk"
         deleted_local=$((deleted_local + 1))
       else
-        echo "repo=$name skip-local=$br reason=delete-failed"
+        echo "repo=$name skip-local=$br reason=$(branch_delete_reason "$br" "$err")"
         skipped=$((skipped + 1))
       fi
     done
@@ -1294,12 +1384,14 @@ for repo in "$git_root"/*/; do
     for b in "${kept_local[@]}"; do
       [[ -z "${late_protected[$b]:-}" ]] || continue
       # Ancestry vs origin/$trunk, not `git branch -d`'s HEAD/upstream check: a stale local trunk would refuse merged branches.
-      if git merge-base --is-ancestor "$b" "origin/$trunk" 2>/dev/null \
-         && git branch -D "$b" >/dev/null 2>&1; then
+      if ! git merge-base --is-ancestor "$b" "origin/$trunk" 2>/dev/null; then
+        echo "repo=$name skip-local=$b reason=not-fully-merged"
+        skipped=$((skipped + 1))
+      elif err="$(git branch -D "$b" 2>&1 >/dev/null)"; then
         echo "repo=$name deleted-local=$b"
         deleted_local=$((deleted_local + 1))
       else
-        echo "repo=$name skip-local=$b reason=not-fully-merged"
+        echo "repo=$name skip-local=$b reason=$(branch_delete_reason "$b" "$err")"
         skipped=$((skipped + 1))
       fi
     done
@@ -1308,11 +1400,11 @@ for repo in "$git_root"/*/; do
       # Safe to force-delete: verified above that this branch's own patch
       # matches the PR's merge commit, so -D can't lose anything that -d's
       # ancestry check would have caught.
-      if git branch -D "$b" >/dev/null 2>&1; then
+      if err="$(git branch -D "$b" 2>&1 >/dev/null)"; then
         echo "repo=$name deleted-local=$b reason=squash-merged-verified"
         deleted_local=$((deleted_local + 1))
       else
-        echo "repo=$name skip-local=$b reason=delete-failed"
+        echo "repo=$name skip-local=$b reason=$(branch_delete_reason "$b" "$err")"
         skipped=$((skipped + 1))
       fi
     done

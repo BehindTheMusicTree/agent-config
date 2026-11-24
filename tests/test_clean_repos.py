@@ -39,7 +39,8 @@ def bash_major():
 
 def git(cwd, *args):
     result = subprocess.run(
-        ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', *args],
+        ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+         '-c', 'protocol.file.allow=always', *args],
         cwd=cwd, text=True, capture_output=True)
     if result.returncode:
         raise RuntimeError(f'git {args}: {result.stdout}\n{result.stderr}')
@@ -1249,6 +1250,73 @@ class CleanReposTests(unittest.TestCase):
         output = self.run_script('apply', GH_OPEN_BRANCHES='')
         self.assertIn('deleted-local=feature/x', output)
         self.assertTrue(recap.exists())
+
+
+    def add_submodule_worktree(self, branch):
+        sub_origin = Path(self.tmp.name).resolve() / 'sub.git'
+        seed = Path(self.tmp.name).resolve() / 'sub-seed'
+        git(sub_origin.parent, 'init', '-q', '--bare', '-b', 'main', str(sub_origin))
+        git(sub_origin.parent, 'clone', '-q', str(sub_origin), str(seed))
+        (seed / 'f.txt').write_text('sub\n')
+        git(seed, 'add', '.')
+        git(seed, 'commit', '-q', '-m', 'sub initial')
+        git(seed, 'push', '-q', 'origin', 'HEAD:main')
+        git(self.repo, 'submodule', 'add', '-q', str(sub_origin), 's')
+        git(self.repo, 'commit', '-q', '-m', 'add submodule')
+        git(self.repo, 'push', '-q', 'origin', 'main')
+        path = self.add_worktree(branch, merged=True)
+        git(path, 'submodule', 'update', '--init', '-q')
+        return path
+
+    def test_merged_worktree_with_clean_submodule_is_removed_with_its_branch(self):
+        path = self.add_submodule_worktree('feature/sub')
+        output = self.run_script('apply')
+        self.assertIn(f'removed-worktree={path} submodules=removed-clean', output)
+        self.assertIn('deleted-local=feature/sub', output)
+        self.assertFalse(path.exists())
+
+    def assert_submodule_worktree_kept(self, path, reason, worktree_kept=True):
+        output = self.run_script('apply')
+        self.assertIn(f'skip-worktree={path} branch=feature/sub reason={reason}', output)
+        if worktree_kept:
+            self.assertIn('skip-local=feature/sub reason=worktree-kept', output)
+        self.assertNotIn('not-fully-merged', output)
+        self.assertTrue(path.exists())
+        self.assertTrue(self.branch_exists('feature/sub'))
+
+    def test_merged_worktree_with_dirty_submodule_is_kept(self):
+        path = self.add_submodule_worktree('feature/sub')
+        (path / 's' / 'untracked.txt').write_text('x\n')
+        # The existing dirty check already sees it; the submodule check is a second guard.
+        self.assert_submodule_worktree_kept(path, 'uncommitted-changes', worktree_kept=False)
+
+    def test_merged_worktree_with_unpushed_submodule_commit_is_kept(self):
+        path = self.add_submodule_worktree('feature/sub')
+        # A local branch ahead of every remote ref, with HEAD back on the pushed commit:
+        # the superproject stays clean, so only the submodule check can catch it.
+        git(path / 's', 'checkout', '-q', '-b', 'local-only')
+        (path / 's' / 'f.txt').write_text('changed\n')
+        git(path / 's', 'commit', '-q', '-am', 'local only')
+        git(path / 's', 'checkout', '-q', '--detach', 'origin/main')
+        self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
+
+    def test_merged_worktree_with_submodule_stash_is_kept(self):
+        path = self.add_submodule_worktree('feature/sub')
+        (path / 's' / 'f.txt').write_text('changed\n')
+        git(path / 's', 'stash', 'push', '-q', '-m', 'wip-submodule-test')
+        self.assert_submodule_worktree_kept(path, 'submodule-stash:s')
+
+    def test_scan_reports_submodule_state(self):
+        self.add_submodule_worktree('feature/sub')
+        self.assertIn('[submodules: clean, removed with --force]', self.run_script('scan'))
+
+    def test_locked_worktree_reports_git_reason(self):
+        path = self.add_worktree('feature/locked', merged=True)
+        git(self.repo, 'worktree', 'lock', str(path))
+        output = self.run_script('apply')
+        self.assertRegex(output, r'skip-worktree=.*reason=remove-failed: .*lock')
+        self.assertIn('skip-local=feature/locked reason=worktree-kept', output)
+        self.assertTrue(self.branch_exists('feature/locked'))
 
 
 if __name__ == '__main__':
