@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect failed PR check logs and bounded evidence; never modify GitHub resources."""
+"""Collect failed PR check logs, code-scanning alerts, and bounded evidence; never modify GitHub resources."""
 import argparse
 from collections import deque
 import json
@@ -59,21 +59,71 @@ def index_log(path, max_groups):
     }
 
 
+def code_scanning_check(repo, check_run_id, head_sha, directory):
+    """Return alert evidence for a GitHub code-scanning check run, or None for any other app."""
+    run = gh_json('api', f'repos/{repo}/check-runs/{check_run_id}')
+    if (run.get('app') or {}).get('slug') != 'github-advanced-security':
+        return None
+    if run.get('head_sha') != head_sha:
+        raise ValueError('Check run SHA differs from PR head; refresh checks')
+    count = (run.get('output') or {}).get('annotations_count') or 0
+    annotations = []
+    path = None
+    if count:
+        pages = gh_json('api', '--paginate', '--slurp', f'repos/{repo}/check-runs/{check_run_id}/annotations?per_page=100')
+        annotations = [item for page in pages for item in page]
+        path = directory / f'{head_sha}-check-{check_run_id}-annotations.json'
+        path.write_text(json.dumps(annotations, indent=2) + '\n')
+    levels = {}
+    for item in annotations:
+        level = item.get('annotation_level')
+        levels[level] = levels.get(level, 0) + 1
+    alerts = [{'path': item.get('path'), 'start_line': item.get('start_line'), 'end_line': item.get('end_line'),
+               'level': item.get('annotation_level'), 'rule': item.get('title'),
+               'message': (item.get('message') or '')[:500]} for item in annotations[:20]]
+    return {'kind': 'code_scanning', 'check_run_id': check_run_id, 'alert_count': len(annotations),
+            'levels': levels, 'alerts': alerts, 'omitted_alerts': max(0, len(annotations) - len(alerts)),
+            'annotations': str(path) if path else None}
+
+
 def collect(pr, repo, output_root, max_groups):
     metadata = gh_json('pr', 'view', pr, '--repo', repo, '--json', 'number,url,headRefOid,statusCheckRollup')
     directory = Path(tempfile.mkdtemp(prefix=f'pr-{metadata["number"]}-', dir=output_root))
     result = {'repository': repo, 'pr': metadata['url'], 'head_sha': metadata['headRefOid'],
-              'artifacts': str(directory), 'failed_checks': [], 'status': 'ok',
+              'artifacts': str(directory), 'failed_checks': [], 'code_scanning': [], 'status': 'ok',
               'check_count': len(metadata['statusCheckRollup'] or []),
               'scope': 'Fresh check snapshot; no checks are rerun and no resources are modified.'}
     for check in metadata['statusCheckRollup'] or []:
         conclusion = check.get('conclusion') or check.get('state', '')
-        if conclusion not in FAILURES:
-            continue
+        failing = conclusion in FAILURES
         entry = {'name': check.get('name') or check.get('context'), 'conclusion': conclusion,
                  'url': check.get('detailsUrl') or check.get('targetUrl')}
-        result['failed_checks'].append(entry)
         url = urlparse(entry['url'] or '')
+        scanning = re.fullmatch(r'/' + re.escape(repo) + r'/runs/(\d+)/?', url.path)
+        if url.hostname == 'github.com' and scanning:
+            try:
+                found = code_scanning_check(repo, scanning.group(1), metadata['headRefOid'], directory)
+            except (ValueError, OSError, KeyError, subprocess.SubprocessError) as exc:
+                if failing:
+                    result['failed_checks'].append(entry)
+                    entry.update({'status': 'collection_failed', 'error': str(exc)})
+                result['status'] = 'partial'
+                continue
+            if found and failing:
+                result['failed_checks'].append(entry)
+                if found['alert_count']:
+                    entry.update({**found, 'status': 'collected'})
+                else:
+                    entry.update({**found, 'status': 'external_or_unresolved',
+                                  'next_step': 'The check failed without annotations (analysis error or alerts outside the diff); inspect the linked provider diagnostics.'})
+                    result['status'] = 'partial'
+                continue
+            if found and found['alert_count']:
+                result['code_scanning'].append({'name': entry['name'], 'conclusion': conclusion, **found})
+                continue
+        if not failing:
+            continue
+        result['failed_checks'].append(entry)
         match = re.fullmatch(r'/' + re.escape(repo) + r'/actions/runs/(\d+)/(?:attempts/\d+/)?job/(\d+)/?', url.path)
         if url.hostname != 'github.com' or not match:
             entry['status'] = 'external_or_unresolved'
@@ -143,7 +193,9 @@ def main():
                     raise ValueError('Output directory inside a repository must be gitignored')
         result = collect(args.pr, args.repo, output_root, args.max_groups)
         preview = {**result, 'failed_checks': result['failed_checks'][:5],
-                   'omitted_checks': max(0, len(result['failed_checks']) - 5)}
+                   'omitted_checks': max(0, len(result['failed_checks']) - 5),
+                   'code_scanning': result['code_scanning'][:5],
+                   'omitted_code_scanning': max(0, len(result['code_scanning']) - 5)}
         sys.stdout.write(json.dumps(preview, indent=2) + '\n')
         return 0 if result['status'] == 'ok' else 1
     except (ValueError, OSError, KeyError, subprocess.SubprocessError) as exc:
