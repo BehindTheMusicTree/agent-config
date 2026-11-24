@@ -182,6 +182,16 @@ class PrContextTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'read failed'):
                 pr_context.merge_method(self.root, *route)
 
+    def test_classic_merge_queue_blocks_native_auto_merge(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
+        flags = ('ok', '{"default_branch":"main","allow_squash_merge":true}')
+        classic = ('ok', json.dumps({'data': {'repository': {
+            'ref': {'branchProtectionRule': None}, 'mergeQueue': {'configuration': {'mergeMethod': 'SQUASH'}},
+        }}}))
+        with patch.object(pr_context, 'gh_api', side_effect=[flags, ('missing', ''), ('ok', '[[]]'), classic]):
+            with self.assertRaisesRegex(ValueError, 'merge queue on main'):
+                pr_context.merge_method(self.root, 'feature/x', 'main')
+
     def test_existing_pr_uses_github_refs_and_detects_develop_without_a_local_ref(self):
         self.git('remote', 'add', 'origin', 'https://github.com/BehindTheMusicTree/app.git')
         pr = {'head': {'ref': 'release/2.1.0', 'sha': '123'}, 'base': {'ref': 'main'}, 'state': 'open'}

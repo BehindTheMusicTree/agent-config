@@ -142,21 +142,25 @@ def verify_btmt_branch_rules(owner, repo, target, method):
         )
         if blocked:
             raise ValueError(f'GitHub ruleset {rule["ruleset_id"]} on {target} blocks native auto-merge with {method}')
-    if method == 'merge':
-        query = (
-            'query($owner:String!, $repo:String!, $ref:String!) { repository(owner:$owner, name:$repo) {'
-            ' ref(qualifiedName:$ref) { branchProtectionRule { requiresLinearHistory } } } }'
-        )
-        response = github_json(
-            '-f', f'query={query}', '-f', f'owner={owner}', '-f', f'repo={repo}', '-f', f'ref=refs/heads/{target}',
-            'graphql',
-        )
-        ref = response['data']['repository']['ref']
-        if ref is None:
-            raise ValueError(f'Cannot read branch protection for {owner}/{repo}:{target}')
-        protection = ref['branchProtectionRule']
-        if protection and protection['requiresLinearHistory']:
-            raise ValueError(f'Classic branch protection requires linear history on {target} and blocks {method}')
+    query = (
+        'query($owner:String!, $repo:String!, $ref:String!, $branch:String!) {'
+        ' repository(owner:$owner, name:$repo) {'
+        ' ref(qualifiedName:$ref) { branchProtectionRule { requiresLinearHistory } }'
+        ' mergeQueue(branch:$branch) { configuration { mergeMethod } } } }'
+    )
+    response = github_json(
+        '-f', f'query={query}', '-f', f'owner={owner}', '-f', f'repo={repo}', '-f', f'ref=refs/heads/{target}',
+        '-f', f'branch={target}', 'graphql',
+    )
+    repository = response['data']['repository']
+    ref = repository['ref']
+    if ref is None:
+        raise ValueError(f'Cannot read branch protection for {owner}/{repo}:{target}')
+    if repository.get('mergeQueue'):
+        raise ValueError(f'GitHub merge queue on {target} blocks this native auto-merge workflow')
+    protection = ref['branchProtectionRule']
+    if method == 'merge' and protection and protection['requiresLinearHistory']:
+        raise ValueError(f'Classic branch protection requires linear history on {target} and blocks {method}')
 
 
 def verify_back_merge_source(root, endpoint, pr_head):
