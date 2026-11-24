@@ -528,6 +528,30 @@ class CiContextTests(unittest.TestCase):
         self.assertEqual(result['failed_checks'][0]['status'], 'external_or_unresolved')
         self.assertEqual(result['status'], 'partial')
 
+    def test_failing_code_scanning_check_without_annotations_is_partial(self):
+        metadata, run, _ = self.scanning('FAILURE', annotations=0)
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, run, metadata]):
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        self.assertEqual(result['status'], 'partial')
+        self.assertEqual(result['failed_checks'][0]['status'], 'external_or_unresolved')
+        self.assertIn('next_step', result['failed_checks'][0])
+
+    def test_code_scanning_pages_are_flattened_and_alerts_bounded(self):
+        metadata, run, _ = self.scanning('FAILURE', annotations=25)
+        _, _, pages = self.scanning('FAILURE', annotations=25)
+        pages = [pages[0][:10], pages[0][10:]]
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, run, pages, metadata]):
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        entry = result['failed_checks'][0]
+        self.assertEqual((entry['alert_count'], len(entry['alerts']), entry['omitted_alerts']), (25, 20, 5))
+        self.assertEqual(len(json.loads(Path(entry['annotations']).read_text())), 25)
+
+    def test_api_error_on_passing_code_scanning_check_is_partial(self):
+        metadata, _, _ = self.scanning('SUCCESS')
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, ValueError('403'), metadata]):
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        self.assertEqual((result['status'], result['failed_checks']), ('partial', []))
+
     def test_cli_bounds_code_scanning_preview(self):
         metadata, run, pages = self.scanning('SUCCESS')
         checks = [metadata['statusCheckRollup'][0]] * 6

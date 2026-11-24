@@ -111,7 +111,12 @@ def collect(pr, repo, output_root, max_groups):
                 continue
             if found and failing:
                 result['failed_checks'].append(entry)
-                entry.update({**found, 'status': 'collected'})
+                if found['alert_count']:
+                    entry.update({**found, 'status': 'collected'})
+                else:
+                    entry.update({**found, 'status': 'external_or_unresolved',
+                                  'next_step': 'The check failed without annotations (analysis error or alerts outside the diff); inspect the linked provider diagnostics.'})
+                    result['status'] = 'partial'
                 continue
             if found and found['alert_count']:
                 result['code_scanning'].append({'name': entry['name'], 'conclusion': conclusion, **found})

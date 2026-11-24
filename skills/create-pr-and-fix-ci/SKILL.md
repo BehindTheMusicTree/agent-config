@@ -35,7 +35,7 @@ Repeat, capped at 5 iterations:
    ```bash
    gh pr view <pr> --json mergeable,mergeStateStatus,baseRefName
    ```
-   - `mergeable: MERGEABLE` → run the collector once on the final head. When its `code_scanning` list has non-blocking alerts, fix those that are trivial and inside the PR's scope (the fix goes through step 3 below and counts toward the 5-iteration cap) and report the rest without fixing them. Then the loop ends, go to Step 4.
+   - `mergeable: MERGEABLE` → read `code_scanning` from the collector run on the final head (run it once if step 1 did not collect on this head). When that list has non-blocking alerts, fix those that are trivial and inside the PR's scope (the fix goes through step 3 below and counts toward the 5-iteration cap) and report the rest without fixing them. Then the loop ends, go to Step 4.
    - `mergeable: UNKNOWN` → GitHub hasn't finished computing it yet; wait a few seconds and re-check (cap at ~5 retries) before treating it as stuck.
    - `mergeable: CONFLICTING` → fetch the PR's base branch (`baseRefName`, not a guess) and merge it locally to surface the conflicting files, rather than guessing from the PR page:
      ```bash
