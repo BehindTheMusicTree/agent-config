@@ -477,6 +477,71 @@ class CiContextTests(unittest.TestCase):
         self.assertEqual(preview['omitted_checks'], 1)
         self.assertEqual(len(json.loads(Path(preview['manifest']).read_text())['failed_checks']), 6)
 
+    def scanning(self, conclusion, annotations=2, app='github-advanced-security', sha=None):
+        check = {'name': 'CodeQL', 'conclusion': conclusion,
+                 'detailsUrl': 'https://github.com/owner/repo/runs/99'}
+        metadata = {**self.metadata, 'statusCheckRollup': [check]}
+        run = {'app': {'slug': app}, 'head_sha': sha or self.head, 'output': {'annotations_count': annotations}}
+        items = [{'path': f'f{i}.py', 'start_line': i, 'end_line': i, 'annotation_level': 'failure',
+                  'title': 'py/sql-injection', 'message': 'm'} for i in range(annotations)]
+        return metadata, run, [items]
+
+    def test_failing_code_scanning_check_lists_alerts_without_log_download(self):
+        metadata, run, pages = self.scanning('FAILURE')
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, run, pages, metadata]), \
+                patch.object(ci_context.subprocess, 'run') as download:
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        download.assert_not_called()
+        entry = result['failed_checks'][0]
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual((entry['kind'], entry['alert_count']), ('code_scanning', 2))
+        self.assertTrue(Path(entry['annotations']).is_file())
+        self.assertEqual(entry['alerts'][0]['rule'], 'py/sql-injection')
+
+    def test_passing_code_scanning_check_surfaces_alerts_without_failing(self):
+        metadata, run, pages = self.scanning('SUCCESS')
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, run, pages, metadata]):
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['failed_checks'], [])
+        self.assertEqual(result['code_scanning'][0]['alert_count'], 2)
+
+    def test_passing_code_scanning_check_without_annotations_makes_no_annotation_call(self):
+        metadata, run, _ = self.scanning('SUCCESS', annotations=0)
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, run, metadata]) as api:
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        self.assertEqual(api.call_count, 3)
+        self.assertEqual((result['status'], result['code_scanning']), ('ok', []))
+
+    def test_code_scanning_check_for_another_head_is_partial(self):
+        metadata, run, _ = self.scanning('FAILURE', sha='b' * 40)
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, run, metadata]) as api:
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        self.assertEqual(api.call_count, 3)
+        self.assertEqual(result['status'], 'partial')
+        self.assertEqual(result['failed_checks'][0]['status'], 'collection_failed')
+
+    def test_runs_url_from_another_app_stays_external(self):
+        metadata, run, _ = self.scanning('FAILURE', app='other')
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata, run, metadata]):
+            result = ci_context.collect('5', 'owner/repo', self.root, 1)
+        self.assertEqual(result['failed_checks'][0]['status'], 'external_or_unresolved')
+        self.assertEqual(result['status'], 'partial')
+
+    def test_cli_bounds_code_scanning_preview(self):
+        metadata, run, pages = self.scanning('SUCCESS')
+        checks = [metadata['statusCheckRollup'][0]] * 6
+        metadata = {**metadata, 'statusCheckRollup': checks}
+        output = io.StringIO()
+        with patch.object(ci_context, 'gh_json', side_effect=[metadata] + [run, pages] * 6 + [metadata]), \
+                patch('sys.argv', ['ci-failure-context.py', '5', '--repo', 'owner/repo']), \
+                patch('sys.stdout', output), \
+                patch.object(ci_context.tempfile, 'gettempdir', return_value=str(self.root)):
+            self.assertEqual(ci_context.main(), 0)
+        preview = json.loads(output.getvalue())
+        self.assertEqual(len(preview['code_scanning']), 5)
+        self.assertEqual(preview['omitted_code_scanning'], 1)
+
     def test_cli_refuses_unignored_repository_artifacts_before_network(self):
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True, capture_output=True)
         directory = self.root / 'logs'

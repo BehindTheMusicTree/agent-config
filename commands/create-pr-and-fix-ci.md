@@ -27,12 +27,12 @@ Repeat, capped at 5 iterations:
      ```bash
      python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ci-failure-context.py" <pr-number> --repo <owner/repo>
      ```
-     Read the bounded JSON and use its raw log/index/manifest paths for deeper inspection. Exit `1` with `partial` or `stale` is not CI success: inspect reported collection failures, provider links, or refreshed checks. Excerpts are heuristic candidates; omitted checks/groups and unmatched errors require the saved artifacts. Diagnose and fix the actual failure without weakening checks.
+     Read the bounded JSON and use its raw log/index/manifest paths for deeper inspection. Exit `1` with `partial` or `stale` is not CI success: inspect reported collection failures, provider links, or refreshed checks. Excerpts are heuristic candidates; omitted checks/groups and unmatched errors require the saved artifacts. Diagnose and fix the actual failure without weakening checks. Entries with `kind: code_scanning` list the alerts the PR introduced (rule, path:line, level): fix the flagged code. Never dismiss an alert, add a suppression comment (`codeql[...]`, `lgtm`), or change the CodeQL configuration, query filters, threshold or default setup without the user's approval. If an alert looks like a false positive, stop and report it with its rule and location.
 2. Check the PR's mergeable state — CI checks passing does not mean the PR can merge; GitHub computes mergeability against the base branch separately:
    ```bash
    gh pr view <pr> --json mergeable,mergeStateStatus,baseRefName
    ```
-   - `mergeable: MERGEABLE` → the loop ends, go to Step 4.
+   - `mergeable: MERGEABLE` → run the collector once on the final head. When its `code_scanning` list has non-blocking alerts, fix those that are trivial and inside the PR's scope (the fix goes through step 3 below and counts toward the 5-iteration cap) and report the rest without fixing them. Then the loop ends, go to Step 4.
    - `mergeable: UNKNOWN` → GitHub hasn't finished computing it yet; wait a few seconds and re-check (cap at ~5 retries) before treating it as stuck.
    - `mergeable: CONFLICTING` → fetch the PR's base branch (`baseRefName`, not a guess) and merge it locally to surface the conflicting files, rather than guessing from the PR page:
      ```bash
@@ -48,7 +48,7 @@ While triaging failures, also apply your own expert-developer read of the surrou
 
 Reuse a downloaded log only for the same repository, head SHA, run, attempt, and job. A rerun on the same SHA can have different logs. Keep fresh check and mergeability reads after every push; cached logs never establish current CI status. When waiting, retain the last status and report transitions or failures rather than repeatedly rereading unchanged output.
 
-The run/job log commands apply to GitHub Actions. For external checks, use the provider's linked diagnostics with the same bounded-output discipline; do not invent GitHub run or job IDs.
+The run/job log commands apply to GitHub Actions. For external checks, use the provider's linked diagnostics with the same bounded-output discipline; do not invent GitHub run or job IDs. The `CodeQL` check from GitHub code scanning is handled by the collector, not by provider links.
 
 ## Step 4 — Output format
 
@@ -56,8 +56,9 @@ Keep this terse:
 1. **PR URL** and selected intent/depth
 2. **Review findings** (creation or existing-PR inspection) — confirmed findings, then rejected ones with the reason, or "none"
 3. **CI summary** — per iteration, which checks failed and what fix was pushed, or "all green from the start"
-4. **Re-reviews** — per iteration, the delta reviewed and its findings, or the exemption and its reason, or "no fix pushed"
-5. **Mergeable state** — per iteration, `mergeable`/`mergeStateStatus` seen, and any conflicts resolved, or "mergeable from the start"
-6. **Additional issues found** — things CI didn't catch, bullet list, or "none"
-7. **Auto-merge** — enabled, skipped (reason), or already merged
-8. **Final state** — clean exit, or which cap was hit and what's still outstanding
+4. **Code scanning** — blocking alerts fixed, non-blocking alerts fixed or reported, or "none" / "no code-scanning check"
+5. **Re-reviews** — per iteration, the delta reviewed and its findings, or the exemption and its reason, or "no fix pushed"
+6. **Mergeable state** — per iteration, `mergeable`/`mergeStateStatus` seen, and any conflicts resolved, or "mergeable from the start"
+7. **Additional issues found** — things CI didn't catch, bullet list, or "none"
+8. **Auto-merge** — enabled, skipped (reason), or already merged
+9. **Final state** — clean exit, or which cap was hit and what's still outstanding
