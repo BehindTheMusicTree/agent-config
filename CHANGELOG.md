@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- Protect local files hidden by Git settings and recoverable unpublished submodule commits when cleaning worktrees.
 - Cleanup removes worktrees with initialized submodules, using a single `--force` only after proving each submodule has no local changes, stash or unpushed commit; the scan announces it. A worktree that cannot be removed now reports git's message, and its branch is kept as `worktree-kept` instead of a false `not-fully-merged`. Branch deletion failures report `checked-out:<path>` or `delete-failed: <git message>`.
 
 ### CI

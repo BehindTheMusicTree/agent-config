@@ -553,19 +553,35 @@ worktree_has_submodules() {
 # git dir, which `worktree remove --force` destroys, so unpushed work must be
 # ruled out first. Any failure of the check counts as unsafe.
 worktree_submodules_safe() {
-  local path="$1" out
-  worktree_has_submodules "$path" || return 0
-  local gitdir
+  local path="$1" out gitdir
   gitdir="$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "submodule-check-failed"; return 1; }
   # Any failing git call aborts foreach (rc != 0), so an unreadable submodule is never "clean".
-  if ! out="$(git -C "$path" submodule foreach --quiet --recursive '
-      echo "@gitdir $(git rev-parse --absolute-git-dir)" || exit 1
-      s=$(git status --porcelain --ignore-submodules=none) || exit 1
-      [ -z "$s" ] || echo "submodule-dirty:$displaypath"
+  if ! out="$(CLEANUP_SUPERPROJECT_GITDIR="$gitdir" git -C "$path" submodule foreach --quiet --recursive '
+      sub_gitdir=$(git rev-parse --absolute-git-dir) || exit 1
+      echo "@gitdir $sub_gitdir"
+      # Only the superproject-owned Git dirs are covered by the nested module check below.
+      case "$sub_gitdir" in
+        "$CLEANUP_SUPERPROJECT_GITDIR"/modules/*) ;;
+        *) echo "submodule-external-gitdir:$displaypath"; exit 0 ;;
+      esac
+      listings=$(git worktree list --porcelain) || exit 1
+      count=$(printf "%s\n" "$listings" | grep -c "^worktree ") || exit 1
+      [ "$count" = 1 ] || { echo "submodule-linked-worktrees:$displaypath"; exit 0; }
+      s=$(git status --porcelain --untracked-files=all --ignore-submodules=none) || exit 1
+      [ -z "$s" ] || { echo "submodule-dirty:$displaypath"; exit 0; }
+      s=$(git ls-files -v) || exit 1
+      if printf "%s\n" "$s" | grep -Eq "^[a-zS] "; then
+        echo "submodule-index-hides-paths:$displaypath"
+        exit 0
+      fi
       s=$(git stash list) || exit 1
-      [ -z "$s" ] || echo "submodule-stash:$displaypath"
-      s=$(git rev-list -n1 HEAD --branches --not --remotes) || exit 1
-      [ -z "$s" ] || echo "submodule-unpushed:$displaypath"
+      [ -z "$s" ] || { echo "submodule-stash:$displaypath"; exit 0; }
+      s=$(git rev-list -n1 HEAD --all --reflog --not --remotes) || exit 1
+      [ -z "$s" ] || { echo "submodule-unpushed:$displaypath"; exit 0; }
+      s=$(git fsck --connectivity-only --unreachable --no-progress) || exit 1
+      if printf "%s\n" "$s" | grep -q "^unreachable commit "; then
+        echo "submodule-unpushed:$displaypath"
+      fi
     ' 2>/dev/null)"; then
     echo "submodule-check-failed"
     return 1
@@ -597,14 +613,27 @@ worktree_submodules_safe() {
 # Remove a worktree. rc 0 on success (remove_forced=true when git needed
 # --force because of clean submodules); rc 1 with remove_reason set otherwise.
 remove_worktree() {
-  local path="$1" err
+  local path="$1" err status index_flags
   remove_reason="" remove_forced=false
   if err="$(git worktree remove "$path" 2>&1)"; then return 0; fi
   if [[ "$err" == *"containing submodules"* ]]; then
     if ! remove_reason="$(worktree_submodules_safe "$path")"; then return 1; fi
     # --force also skips git's own cleanliness check of the superproject: redo it.
-    if [[ -n "$(git -C "$path" status --porcelain --ignore-submodules=none 2>/dev/null)" ]]; then
+    if ! status="$(git -C "$path" status --porcelain --untracked-files=all --ignore-submodules=none 2>/dev/null)"; then
+      remove_reason=worktree-status-check-failed
+      return 1
+    fi
+    if [[ -n "$status" ]]; then
       remove_reason=changed-before-force
+      return 1
+    fi
+    # Status trusts assume-unchanged and skip-worktree even when files differ.
+    if ! index_flags="$(git -C "$path" ls-files -v 2>/dev/null)"; then
+      remove_reason=worktree-index-check-failed
+      return 1
+    fi
+    if grep -Eq "^[a-zS] " <<<"$index_flags"; then
+      remove_reason=worktree-index-hides-paths
       return 1
     fi
     if err="$(git worktree remove --force "$path" 2>&1)"; then remove_forced=true; return 0; fi
@@ -630,7 +659,7 @@ worktree_submodule_note() {
   local path="$1" reason
   worktree_has_submodules "$path" || return 0
   if reason="$(worktree_submodules_safe "$path")"; then
-    echo " [submodules: clean, removed with --force]"
+    echo " [submodules: clean, removal requires --force]"
   else
     echo " [submodules: $reason, will be kept]"
   fi
