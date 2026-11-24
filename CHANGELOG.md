@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.10.0] - 2026-11-24
+
 ### Added
 
 - `create-pr-and-fix-ci` now reports GitHub code-scanning alerts (blocking and non-blocking) from `ci-failure-context.py`, and forbids dismissing or suppressing them without approval.
