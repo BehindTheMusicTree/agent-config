@@ -556,8 +556,17 @@ worktree_submodules_safe() {
   local path="$1" out gitdir
   gitdir="$(git -C "$path" rev-parse --absolute-git-dir 2>/dev/null)" || { echo "submodule-check-failed"; return 1; }
   # Any failing git call aborts foreach (rc != 0), so an unreadable submodule is never "clean".
-  if ! out="$(git -C "$path" submodule foreach --quiet --recursive '
-      echo "@gitdir $(git rev-parse --absolute-git-dir)" || exit 1
+  if ! out="$(CLEANUP_SUPERPROJECT_GITDIR="$gitdir" git -C "$path" submodule foreach --quiet --recursive '
+      sub_gitdir=$(git rev-parse --absolute-git-dir) || exit 1
+      echo "@gitdir $sub_gitdir"
+      # Only the superproject-owned Git dirs are covered by the nested module check below.
+      case "$sub_gitdir" in
+        "$CLEANUP_SUPERPROJECT_GITDIR"/modules/*) ;;
+        *) echo "submodule-external-gitdir:$displaypath"; exit 0 ;;
+      esac
+      listings=$(git worktree list --porcelain) || exit 1
+      count=$(printf "%s\n" "$listings" | grep -c "^worktree ") || exit 1
+      [ "$count" = 1 ] || { echo "submodule-linked-worktrees:$displaypath"; exit 0; }
       s=$(git status --porcelain --untracked-files=all --ignore-submodules=none) || exit 1
       [ -z "$s" ] || { echo "submodule-dirty:$displaypath"; exit 0; }
       s=$(git ls-files -v) || exit 1
@@ -650,7 +659,7 @@ worktree_submodule_note() {
   local path="$1" reason
   worktree_has_submodules "$path" || return 0
   if reason="$(worktree_submodules_safe "$path")"; then
-    echo " [submodules: clean, removed with --force]"
+    echo " [submodules: clean, removal requires --force]"
   else
     echo " [submodules: $reason, will be kept]"
   fi

@@ -1365,6 +1365,25 @@ class CleanReposTests(unittest.TestCase):
         git(submodule, 'reflog', 'expire', '--expire=all', '--all')
         self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
 
+    def test_submodule_with_another_linked_worktree_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = path / 's'
+        linked = Path(self.tmp.name) / 'linked-submodule'
+        git(submodule, 'worktree', 'add', '-q', '--detach', str(linked), 'origin/main')
+        (linked / 'f.txt').write_text('staged elsewhere\n')
+        git(linked, 'add', 'f.txt')
+        self.assert_submodule_worktree_kept(path, 'submodule-linked-worktrees:s')
+        self.assertEqual(git(linked, 'show', ':f.txt'), 'staged elsewhere\n')
+
+    def test_old_form_submodule_with_embedded_git_dir_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = path / 's'
+        gitdir = Path(git(submodule, 'rev-parse', '--absolute-git-dir').strip())
+        (submodule / '.git').unlink()
+        shutil.move(gitdir, submodule / '.git')
+        git(submodule, 'config', '--unset', 'core.worktree')
+        self.assert_submodule_worktree_kept(path, 'submodule-external-gitdir:s')
+
     def test_merged_worktree_with_submodule_stash_is_kept(self):
         path = self.add_submodule_worktree('feature/sub')
         (path / 's' / 'f.txt').write_text('changed\n')
@@ -1398,7 +1417,7 @@ class CleanReposTests(unittest.TestCase):
 
     def test_scan_reports_submodule_state(self):
         self.add_submodule_worktree('feature/sub')
-        self.assertIn('[submodules: clean, removed with --force]', self.run_script('scan'))
+        self.assertIn('[submodules: clean, removal requires --force]', self.run_script('scan'))
 
     def test_locked_worktree_reports_git_reason(self):
         path = self.add_worktree('feature/locked', merged=True)
