@@ -1306,6 +1306,14 @@ class CleanReposTests(unittest.TestCase):
         git(path / 's', 'stash', 'push', '-q', '-m', 'wip-submodule-test')
         self.assert_submodule_worktree_kept(path, 'submodule-stash:s')
 
+    def test_deinitialized_submodule_with_local_commit_is_kept(self):
+        path = self.add_submodule_worktree('feature/sub')
+        git(path / 's', 'checkout', '-q', '-b', 'local-only')
+        (path / 's' / 'f.txt').write_text('changed\n')
+        git(path / 's', 'commit', '-q', '-am', 'local only')
+        git(path, 'submodule', 'deinit', '-q', '-f', 's')
+        self.assert_submodule_worktree_kept(path, 'submodule-uninitialized:s')
+
     def test_scan_reports_submodule_state(self):
         self.add_submodule_worktree('feature/sub')
         self.assertIn('[submodules: clean, removed with --force]', self.run_script('scan'))
