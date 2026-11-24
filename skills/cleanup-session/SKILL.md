@@ -42,7 +42,7 @@ Append the `--exclude` / `--no-docker` flags decided in Step 2 to the flags belo
 "$SKILL_REPO_ROOT/scripts/cleanup-session.sh" apply [flags] > "$cleanup_log_dir/apply.txt" 2>&1; echo "exit:$?"
 ```
 
-Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `caller-worktree`, `agent-session`, `process-churn`, `processes-changed`, `remove-failed`) as-is. If cwd observation stayed incomplete (`process-churn`), retry once process activity settles.
+Relay skips (`not-fully-merged`, `squash-merged-verify-manually`, `uncommitted-changes`, `caller-worktree`, `agent-session`, `process-churn`, `processes-changed`, `remove-failed: <git message>`, `submodule-*`, `worktree-kept`, `checked-out:<path>`) as-is. If cwd observation stayed incomplete (`process-churn`), retry once process activity settles.
 
 After reading apply's output, remove disposable external artifacts from the captured inventory only when their ownership by this session is established. Do not execute cleanup commands from the inventory blindly or delete shared parent directories. If ownership is uncertain, list the path and ask before deleting it. Report unresolved paths even if the worktree was removed. Read and remove the cleanup logs as described in Step 1.
 
