@@ -5,4 +5,4 @@ Public engine that generates agent instructions, skills and workflow adapters fr
 - Sources live in `instructions/`, `skills/`, `workflows/` and `settings/`; generated adapters are never edited by hand.
 - Do not add client-specific instruction files; `AGENTS.md` is the only instruction source and `CLAUDE.md` contains only `@AGENTS.md`.
 - Validate with `python3 -m unittest discover -s tests`; `tests/test_project_agents.py` covers `scripts/check-project-agents.py`.
-- Record user-visible changes under `[Unreleased]` in `CHANGELOG.md`; releases need explicit approval.
+- Release Please generates versioned `CHANGELOG.md` entries from PR titles; releases need explicit approval.
