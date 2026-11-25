@@ -1365,6 +1365,19 @@ class CleanReposTests(unittest.TestCase):
         self.detach_submodule_from_work(submodule)
         self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
 
+    def test_remote_tag_with_object_missing_locally_does_not_fail_check(self):
+        path = self.add_submodule_worktree('feature/sub')
+        other = Path(self.tmp.name).resolve() / 'sub-other'
+        git(other.parent, 'clone', '-q', str(Path(self.tmp.name).resolve() / 'sub.git'), str(other))
+        git(other, 'checkout', '-q', '--detach')
+        (other / 'f.txt').write_text('elsewhere\n')
+        git(other, 'commit', '-q', '-am', 'only on the remote')
+        git(other, 'tag', 'unfetched')
+        git(other, 'push', '-q', 'origin', 'unfetched')
+        output = self.run_script('apply')
+        self.assertNotIn('submodule-check-failed', output)
+        self.assertIn(f'removed-worktree={path}', output)
+
     def test_submodule_with_unreachable_remote_keeps_worktree(self):
         path = self.add_submodule_worktree('feature/sub')
         git(path / 's', 'remote', 'set-url', 'origin', str(Path(self.tmp.name) / 'missing.git'))
