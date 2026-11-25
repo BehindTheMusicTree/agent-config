@@ -576,7 +576,17 @@ worktree_submodules_safe() {
       fi
       s=$(git stash list) || exit 1
       [ -z "$s" ] || { echo "submodule-stash:$displaypath"; exit 0; }
-      s=$(git rev-list -n1 HEAD --all --reflog --not --remotes) || exit 1
+      # Tags the remotes publish count as pushed even when on no branch; a local
+      # tag absent from (or moved off) the remote is not excluded and still blocks.
+      excl=""
+      for r in $(git remote); do
+        # foreach marks protocols as not user-initiated; ls-remote here is read-only on a remote the user configured.
+        t=$(env -u GIT_PROTOCOL_FROM_USER git ls-remote --tags "$r") || exit 1
+        x=$(printf "%s\n" "$t" | awk "NF{print \"^\" \$1}")
+        [ -z "$x" ] || excl="$excl$x
+"
+      done
+      s=$(printf "%s" "$excl" | git rev-list -n1 --stdin HEAD --all --reflog --not --remotes) || exit 1
       [ -z "$s" ] || { echo "submodule-unpushed:$displaypath"; exit 0; }
       s=$(git fsck --connectivity-only --unreachable --no-progress) || exit 1
       if printf "%s\n" "$s" | grep -q "^unreachable commit "; then

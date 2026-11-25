@@ -1339,6 +1339,37 @@ class CleanReposTests(unittest.TestCase):
         git(submodule, 'reflog', 'expire', '--expire=all', '--all')
         self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
 
+    def detach_submodule_from_work(self, submodule):
+        git(submodule, 'checkout', '-q', '--detach', 'origin/main')
+        git(submodule, 'reflog', 'expire', '--expire=all', '--all')
+
+    def test_submodule_commit_reachable_only_from_remote_tag_is_removed(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = self.add_detached_submodule_commit(path)
+        git(submodule, 'tag', 'upstream-release')
+        git(submodule, 'push', '-q', 'origin', 'upstream-release')
+        self.detach_submodule_from_work(submodule)
+        output = self.run_script('apply')
+        self.assertNotIn('submodule-unpushed', output)
+        self.assertIn(f'removed-worktree={path}', output)
+        self.assertFalse(path.exists())
+
+    def test_submodule_local_tag_reusing_remote_tag_name_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        submodule = self.add_detached_submodule_commit(path)
+        git(submodule, 'tag', 'upstream-release')
+        git(submodule, 'push', '-q', 'origin', 'upstream-release')
+        (submodule / 'f.txt').write_text('more local work\n')
+        git(submodule, 'commit', '-q', '-am', 'second unpublished commit')
+        git(submodule, 'tag', '-f', 'upstream-release')
+        self.detach_submodule_from_work(submodule)
+        self.assert_submodule_worktree_kept(path, 'submodule-unpushed:s')
+
+    def test_submodule_with_unreachable_remote_keeps_worktree(self):
+        path = self.add_submodule_worktree('feature/sub')
+        git(path / 's', 'remote', 'set-url', 'origin', str(Path(self.tmp.name) / 'missing.git'))
+        self.assert_submodule_worktree_kept(path, 'submodule-check-failed')
+
     def test_submodule_commit_reachable_from_reflog_keeps_worktree(self):
         path = self.add_submodule_worktree('feature/sub')
         submodule = self.add_detached_submodule_commit(path)
