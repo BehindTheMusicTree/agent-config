@@ -1,7 +1,8 @@
 # Changelog
 
 GitHub Releases are published through the shared release-tag workflow after repository
-validation. Release Please maintains versioned entries from conventional PR titles.
+validation, replacing the separate tag-triggered publisher. A required check enforces
+conventional PR titles, and Release Please maintains versioned entries from those titles.
 
 ## [3.10.0] - 2026-11-24
 
