@@ -4,6 +4,13 @@ GitHub Releases are published through the shared release-tag workflow after repo
 validation, replacing the separate tag-triggered publisher. A required check enforces
 conventional PR titles, and Release Please maintains versioned entries from those titles.
 
+## [3.10.1](https://github.com/BehindTheMusicTree/agent-config-public/compare/v3.10.0...v3.10.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **clean-repos:** ignore upstream tags in submodule unpushed check ([#123](https://github.com/BehindTheMusicTree/agent-config-public/issues/123)) ([0b022dd](https://github.com/BehindTheMusicTree/agent-config-public/commit/0b022ddda4445c86b869e5a652c60ffe291eca94))
+
 ## [3.10.0] - 2026-11-24
 
 ### Added
