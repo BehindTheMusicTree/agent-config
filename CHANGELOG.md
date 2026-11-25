@@ -5,7 +5,7 @@
 ### CI
 
 - Publish GitHub Releases through the shared release-tag workflow after repository validation, removing the redundant tag-triggered publisher.
-- Prepare the Release Please configuration and add a check for conventional pull request titles.
+- Prepare the Release Please workflow and add a check for conventional pull request titles.
 
 ## [3.10.0] - 2026-11-24
 
