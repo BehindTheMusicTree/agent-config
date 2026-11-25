@@ -13,9 +13,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-repository:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: scripts/lint.sh
+
   release-tag:
-    uses: BehindTheMusicTree/github-workflows/.github/workflows/release-tag.yml@79c136234b5d487bb99e0cd2050f38f6b3e06747
+    needs: validate-repository
+    permissions:
+      contents: write
+    uses: BehindTheMusicTree/github-workflows/.github/workflows/release-tag.yml@8b10f1dfcb88a245e4e4256e61164b49e595faea
     with:
       app-id: ${{ vars.RELEASE_APP_ID }}
     secrets:
       release-app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  release-please:
+    needs: release-tag
+    # Pushes skip this job until the App and main ruleset are configured.
+    if: github.event_name == 'workflow_dispatch'
+    uses: BehindTheMusicTree/github-workflows/.github/workflows/release-please.yml@8b10f1dfcb88a245e4e4256e61164b49e595faea
+    with:
+      app-id: ${{ vars.RELEASE_PR_APP_ID }}
+      release-policies: .github/release-policy.json
+      auto-merge: true
+    secrets:
+      release-pr-app-private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}

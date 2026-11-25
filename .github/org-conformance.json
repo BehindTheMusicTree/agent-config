@@ -2,9 +2,9 @@
   "concurrency": {
     "exemptions": [
       {
-        "workflow": "release.yml",
-        "form": "queue",
-        "reason": "Creates a release from a tag: runs queue per ref and are never cancelled."
+        "workflow": "release-tag.yml",
+        "form": "event",
+        "reason": "Validates the repository before tagging and publication. Each main push has its own run so a pending bump cannot be replaced."
       }
     ]
   }

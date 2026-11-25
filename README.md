@@ -74,10 +74,15 @@ is canonical, and `CHANGELOG.md` supplies versioned notes. Prepare both in a PR 
 The shared workflow pinned in `release-tag.yml` owns tags after approved version bumps;
 ordinary pushes and initial activation never create a tag. Provision the release App
 variable/secret and immutable tag protections through `github-config` before the first bump.
-The existing `release.yml` validates the tag's version, commit ancestry and repository before
-creating its GitHub Release. Rerun a failed tag run to resume: an existing published stable
-release is accepted; API errors, drafts and prereleases fail explicitly. Never recreate or
-move a tag for recovery. Plugin publication and local installation remain separate actions.
+The `release-tag.yml` workflow validates the repository, then the shared workflow validates
+the version and commit ancestry, creates the tag and publishes its GitHub Release. Rerun the
+failed workflow to resume publication while preserving any existing release and tag. Plugin
+publication and local installation follow their own procedures.
+
+The same workflow defines a Release Please job to prepare the version and changelog from
+conventional PR titles. The job stays suspended while `github-config` provisions its App and
+requires the PR title check on `main`. Add the Release Please manifest and configuration
+when the repository is ready to activate the job.
 
 ## Graphify freshness hook
 
