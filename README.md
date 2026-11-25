@@ -79,10 +79,9 @@ the version and commit ancestry, creates the tag and publishes its GitHub Releas
 failed workflow to resume publication while preserving any existing release and tag. Plugin
 publication and local installation follow their own procedures.
 
-The same workflow defines a Release Please job to prepare the version and changelog from
-conventional PR titles. The job stays suspended while `github-config` provisions its App and
-requires the PR title check on `main`. Add the Release Please manifest and configuration
-when the repository is ready to activate the job.
+The same workflow uses Release Please to prepare the version and changelog from conventional
+PR titles. Release Please maintains the versioned changelog; the required title check and
+repository settings are managed by `github-config`.
 
 ## Graphify freshness hook
 
