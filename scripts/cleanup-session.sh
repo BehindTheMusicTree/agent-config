@@ -1,19 +1,33 @@
 #!/usr/bin/env bash
 # Cleans dev leftovers for the current repo: merged branches + their worktrees
 # (delegated to clean-repos.sh, scoped to this repo), then docker leftovers.
+# Unlike clean-repos, the caller's own worktree is a cleanup target by default:
+# the session runs from the worktree it is cleaning up.
 #
 # Usage:
-#   cleanup-session.sh scan  [clean-repos flags] [--no-docker]
-#   cleanup-session.sh apply [clean-repos flags] [--no-docker]
+#   cleanup-session.sh scan  [clean-repos flags] [--keep-caller-worktree] [--no-docker]
+#   cleanup-session.sh apply [clean-repos flags] [--keep-caller-worktree] [--no-docker]
 set -euo pipefail
 
 mode="${1:?usage: cleanup-session.sh <scan|apply> [flags]}"
 shift
 docker_on=true
+keep_caller=false
+remove_caller=false
 flags=()
 for a in "$@"; do
-  [[ "$a" == "--no-docker" ]] && docker_on=false || flags+=("$a")
+  case "$a" in
+    --no-docker) docker_on=false ;;
+    --keep-caller-worktree) keep_caller=true ;;
+    --remove-caller-worktree) remove_caller=true ;;
+    *) flags+=("$a") ;;
+  esac
 done
+if $keep_caller && $remove_caller; then
+  echo "status=blocked reason=conflicting-caller-worktree-flags" >&2
+  exit 2
+fi
+$keep_caller || flags+=(--remove-caller-worktree)
 
 common="$(git rev-parse --path-format=absolute --git-common-dir)"
 repo="$(dirname "$common")"
@@ -22,6 +36,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "== branches/worktrees: $(basename "$repo")"
 "$here/clean-repos.sh" "$mode" "$(dirname "$repo")" --only-repo "$(basename "$repo")" ${flags[@]+"${flags[@]}"}
+
+# The caller's worktree may be gone now; docker compose fails in a missing cwd.
+cd "$repo"
 
 echo "== docker"
 if ! $docker_on; then echo "skipped: --no-docker"; exit 0; fi

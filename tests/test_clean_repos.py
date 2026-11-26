@@ -291,14 +291,37 @@ class CleanReposTests(unittest.TestCase):
             self.assertIn('skipped: --no-docker', stdout)
         return stdout
 
-    def test_wrapper_keeps_caller_worktree_by_default(self):
+    def test_wrapper_removes_caller_worktree_by_default(self):
+        branch = 'feature/caller'
+        path = self.add_worktree(branch, merged=True)
+        recap = self.handoff('repo-feature-caller')
+        plans = self.plans('repo-feature-caller')
+        scan = self.run_as_codex(path, 'scan')
+        self.assertNotIn('reason=caller-worktree', scan)
+        self.assertTrue(path.exists())
+        output = self.run_as_codex(path, 'apply')
+        self.assertIn(f'removed-worktree={path}', output)
+        self.assertFalse(path.exists())
+        self.assertFalse(self.branch_exists(branch))
+        self.assertFalse(self.remote_has(branch))
+        self.assertFalse(recap.exists())
+        self.assertFalse(plans.exists())
+
+    def test_wrapper_rejects_conflicting_caller_flags(self):
+        result = subprocess.run(
+            [str(WRAPPER), 'scan', '--no-docker', '--keep-caller-worktree', '--remove-caller-worktree'],
+            cwd=self.repo, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn('reason=conflicting-caller-worktree-flags', result.stderr)
+
+    def test_wrapper_keeps_caller_worktree_on_request(self):
         branch = 'feature/caller'
         path = self.add_worktree(branch, merged=True)
         recap = self.handoff('repo-feature-caller')
         plans = self.plans('repo-feature-caller')
         other = self.add_worktree('feature/other', merged=True)
         for mode in ('scan', 'apply'):
-            output = self.run_as_codex(path, mode)
+            output = self.run_as_codex(path, mode, '--keep-caller-worktree')
             self.assertIn('caller-worktree', output)
             self.assertNotIn('running-processes', output)
             self.assertNotIn('stale-handoff', output)
@@ -321,7 +344,7 @@ class CleanReposTests(unittest.TestCase):
         linked = self.add_worktree(branch, merged=True)
         git(self.repo, 'worktree', 'remove', str(linked))
         git(self.repo, 'switch', branch)
-        output = self.run_as_codex(self.repo, 'apply', '--remote-only')
+        output = self.run_as_codex(self.repo, 'apply', '--remote-only', '--keep-caller-worktree')
         self.assertIn('reason=caller-worktree', output)
         self.assertTrue(self.remote_has(branch))
 
