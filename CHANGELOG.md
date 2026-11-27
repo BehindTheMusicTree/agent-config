@@ -4,6 +4,13 @@ GitHub Releases are published through the shared release-tag workflow after repo
 validation, replacing the separate tag-triggered publisher. A required check enforces
 conventional PR titles, and Release Please maintains versioned entries from those titles.
 
+## [3.11.2](https://github.com/BehindTheMusicTree/agent-config-public/compare/v3.11.1...v3.11.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* **handoff:** honor the target client and model named in the arguments ([#132](https://github.com/BehindTheMusicTree/agent-config-public/issues/132)) ([e88f849](https://github.com/BehindTheMusicTree/agent-config-public/commit/e88f849c74490f81241a23895e65aac23c3c3a99))
+
 ## [3.11.1](https://github.com/BehindTheMusicTree/agent-config-public/compare/v3.11.0...v3.11.1) (2026-11-27)
 
 
