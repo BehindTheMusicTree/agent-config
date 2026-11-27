@@ -5,7 +5,7 @@ description: Write a self-contained recap of the current session, save it to a f
 
 Produce a handoff recap so the user can drop this session's context and continue in a fresh one. While generating this recap, only write the recap file; do not commit or edit the repository. This restriction applies only to recap generation, not to work resumed from it.
 
-Arguments: **user-provided arguments**. A leading `claude` or `codex` names the target client, the client of the next session; without it the target client is this one (`codex`). The next token (the first one when no client is named) names a model when it reads as a model name or alias (for example `opus`, `gpt-6.2-sol` or `astra`), optionally written `<model>/<effort>`, rather than the first word of a focus. The rest is an optional focus that narrows the recap to that topic. Empty = whole session, this client, model from the table.
+Arguments: **user-provided arguments**. A leading `claude` or `codex` names the target client, the client of the next session; without it the target client is this one (`codex`). The next token (the first one when no client is named) names a model when it reads as a model name or alias (for example `opus`, `gpt-6.2-sol` or `astra`), optionally written `<model>/<effort>`, rather than the first word of a focus. A `--` token ends this parsing: everything after it is the focus, so a focus starting with `codex` or `opus` is written `-- codex ...`. The rest is an optional focus that narrows the recap to that topic. Empty = whole session, this client, model from the table.
 
 ## Step 1 — Choose the resume directory
 
@@ -56,6 +56,8 @@ Write the recap to `agent-handoff-<repo>-<name>.md` inside the common git direct
 When the file was written, do not print the recap: the file already holds it, and printing would generate it a second time. Reply with only the instruction below, plus the note when it applies (after the block). A restart command (`/exit` or new-session branch) goes alone in a fenced `sh` block, on its own lines, so the user copies it in one selection; the `/clear` branch has no command and stays inline:
 
 - "Start a new session with:" followed by the fenced block holding the launch command.
+
+Add one line stating the target client and the model flags used, so a mis-parsed argument is visible before the user runs the command.
 
 Append "(no handoff model for `<phase>`)" when the model flags are empty.
 

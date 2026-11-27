@@ -4,7 +4,7 @@ description: Write a self-contained recap of the current session, save it to a f
 
 Produce a handoff recap so the user can drop this session's context and continue in a fresh one. While generating this recap, only write the recap file; do not commit or edit the repository. This restriction applies only to recap generation, not to work resumed from it.
 
-Arguments: **$ARGUMENTS**. A leading `claude` or `codex` names the target client, the client of the next session; without it the target client is this one (`claude`). The next token (the first one when no client is named) names a model when it reads as a model name or alias (for example `opus`, `gpt-6.2-sol` or `astra`), optionally written `<model>/<effort>`, rather than the first word of a focus. The rest is an optional focus that narrows the recap to that topic. Empty = whole session, this client, model from the table.
+Arguments: **$ARGUMENTS**. A leading `claude` or `codex` names the target client, the client of the next session; without it the target client is this one (`claude`). The next token (the first one when no client is named) names a model when it reads as a model name or alias (for example `opus`, `gpt-6.2-sol` or `astra`), optionally written `<model>/<effort>`, rather than the first word of a focus. A `--` token ends this parsing: everything after it is the focus, so a focus starting with `codex` or `opus` is written `-- codex ...`. The rest is an optional focus that narrows the recap to that topic. Empty = whole session, this client, model from the table.
 
 ## Step 1 — Choose the resume directory
 
@@ -63,6 +63,8 @@ When the file was written, do not print the recap: the file already holds it, an
 
 - The target client is `claude`, the model flags are empty, and the `launch:` and `resume:` lines of Step 2 show the same non-empty path: "Run `/clear`, then send `@<absolute path of the file written in Step 4>`."
 - Otherwise: "Run `/exit`, then:" followed by the fenced block holding the launch command. `/clear` restarts this client in the launch directory with the current model, so it would keep the wrong client, project instructions or model; `/model` would also save the model as the default for new sessions.
+
+Add one line stating the target client and the model flags used, so a mis-parsed argument is visible before the user runs the command.
 
 Append "(no handoff model for `<phase>`)" when the model flags are empty.
 
