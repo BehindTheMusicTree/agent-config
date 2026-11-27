@@ -1,5 +1,5 @@
 ---
-description: Detect the project's branching model (strict Gitflow vs GitHub flow), verify the current branch follows it, and drive the release forward to a PR against main.
+description: Detect the project's branching model (strict Gitflow vs GitHub flow), verify the current branch follows it, and drive the release forward to a PR against main. Not for Release Please repositories, whose generated release PR owns the release.
 ---
 
 Detect the repo's git flow, check the current branch against it, open the PR to `main`, and make sure a version release is actually cut. A merged PR is not a release.
@@ -13,7 +13,7 @@ Optional context: **$ARGUMENTS** (version/bump, optionally `--auto`).
 
 ## Step 1 — Resolve the release and its owner
 
-Fetch each involved repository before assessing its current integration/main state. Preserve unrelated checkouts and use a task worktree. Read project instructions and documented release tools before any mutating command. Inspect scripts for commits, tags, pushes, required secrets and branch expectations.
+Fetch each involved repository before assessing its current integration/main state. If `origin/<trunk>` has `release-please-config.json` or `.release-please-manifest.json` at its root, stop: Release Please prepares that repository's version and changelog in its own release PR, and CI tags and publishes after that PR merges. Report the open release PR and its version instead, and change nothing. Preserve unrelated checkouts and use a task worktree. Read project instructions and documented release tools before any mutating command. Inspect scripts for commits, tags, pushes, required secrets and branch expectations.
 
 Run `"${CLAUDE_PLUGIN_ROOT}/scripts/detect-branch-model.sh"` and read `${CLAUDE_PLUGIN_ROOT}/references/pr-policy.md`.
 
